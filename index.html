@@ -38,6 +38,9 @@
   header .logo{width:26px;height:26px;flex:none}
   header h1{font-size:16px;margin:0;font-weight:700;letter-spacing:.2px}
   header .sub{color:var(--dim);font-size:12px;margin-left:auto}
+  .hpill{font:inherit;font-size:12px;font-weight:600;color:var(--dim);background:none;border:1px solid var(--line);
+    padding:6px 10px;border-radius:999px;text-decoration:none;white-space:nowrap;max-width:42vw;overflow:hidden;text-overflow:ellipsis}
+  .hpill:active{transform:scale(.96)}
   main{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:14px 14px calc(var(--safe-b) + 90px);}
   .view{display:none}
   .view.active{display:block}
@@ -226,8 +229,8 @@
       <circle cx="30" cy="20" r="3" fill="#03130b"/>
     </svg>
     <h1>FieldTone</h1>
-    <a class="sub" href="guide.html" style="margin-left:auto;color:var(--dim);text-decoration:none;border:1px solid var(--line);padding:6px 10px;border-radius:999px;font-weight:600">Guide</a>
-    <span class="sub" id="routeInfo" style="margin-left:0">output: device</span>
+    <a class="hpill" href="guide.html" style="margin-left:auto">Guide</a>
+    <button class="hpill" id="routeInfo" type="button" title="Audio output">🔊 Auto</button>
   </header>
 
   <main>
@@ -332,10 +335,11 @@
           <div class="toggle"><span>Play even when the phone is on silent / ring&nbsp;off</span><div class="sw on" id="swLoud"></div></div>
           <div class="hint">On by default — the click plays through the iOS mute switch, the same way a video with sound does. Turn off if you want the silent switch to mute it.</div>
           <div class="divider"></div>
-          <div id="outRouteRow"></div>
-          <div class="hint">
-            <b>iPhone:</b> pair the field PA / Bluetooth receiver in <b>iOS Settings → Bluetooth</b>, or plug the phone into the sound board with a cable — the click follows whatever output iOS is using. Nothing to set here.<br><br>
-            <b>Laptop:</b> if your browser supports it, pick the exact output (USB interface into the PA) below.
+          <div class="row spread"><span class="muted">Now playing to</span><b id="outNow" style="font-size:13px">Auto</b></div>
+          <div id="outRouteRow" style="margin-top:8px"></div>
+          <div class="hint" id="outHint">
+            <b>iPhone / iPad:</b> the click always goes to whatever iOS is using — AirPods, a Bluetooth speaker, or a cable into the sound board. Connect the device and it switches automatically; iOS doesn't tell web apps the device's name, so this shows “Auto”.<br><br>
+            <b>Laptop:</b> if the browser allows it, pick the exact output below.
           </div>
         </div>
       </details>
@@ -992,12 +996,14 @@ function beatUnitInQuarters(u){
   return 4 / Number(u);           // 1->4, 2->2, 4->1, 8->0.5
 }
 function measureLengthQuarters(){ return M.tsNum * (4 / M.tsDen); }
+// How many of the chosen beat unit fit in one measure (e.g. cut time = 2, 6/8-in-2 = 2).
 function beatsPerMeasure(){
   const b = measureLengthQuarters() / beatUnitInQuarters(M.beatUnit);
   const r = Math.round(b);
   return (Math.abs(b - r) < 0.001 && r >= 1) ? r : Math.max(1, Math.round(b));
 }
-function secondsPerBeat(bpm){ return (60 / bpm) * beatUnitInQuarters(M.beatUnit); }
+// The tempo number IS the rate of the chosen beat unit: 128 "count as half" = 128 half-note clicks/min.
+function secondsPerBeat(bpm){ return 60 / bpm; }
 
 function subdivisionPlan(){
   // returns array of {frac, main} offsets within one beat (0..1)
@@ -1556,8 +1562,8 @@ function segBeatsPerMeasure(s){
   return Math.max(1, Math.round(mlq / buq));
 }
 function segSecondsPerBeat(s, bpm){
-  const buq = s.beatUnit === '3d' ? 1.5 : 4/Number(s.beatUnit);
-  return (60/bpm) * buq;
+  // Tempo = clicks per minute of the segment's chosen beat unit (cut time 128 -> 128 half notes/min).
+  return 60 / bpm;
 }
 function segTotalBeats(s){ return segBeatsPerMeasure(s) * s.measures; }
 function showSubPlan(sd, swingPct){
@@ -2234,6 +2240,7 @@ async function startTuner(){
   }
   applyLoudMode();
   loudKeepAlive(true);
+  refreshOutputUI();                 // mic grant can unlock output-device labels
   T.src = actx.createMediaStreamSource(T.stream);
   T.analyser = actx.createAnalyser();
   T.analyser.fftSize = 4096;                 // ~93 ms window — several cycles even for low brass
@@ -2643,42 +2650,87 @@ function wireRec(){
 /* ============================================================
    OUTPUT ROUTING (Bluetooth / field PA)
    ============================================================ */
-async function wireRouting(){
-  const info = $('#routeInfo');
-  const row = $('#outRouteRow');
-  const ctxCanSink = actx && typeof actx.setSinkId === 'function';
-  const elCanSink = typeof document.createElement('audio').setSinkId === 'function';
-  const canSink = ctxCanSink || elCanSink;
-  info.textContent = canSink ? 'output: selectable' : 'output: follows OS';
+const ROUTE = { canSink: false, current: '' };
 
-  if(!canSink){
-    if(row) row.innerHTML = '<div class="pill">Output follows your OS / Bluetooth selection</div>';
-    return;
-  }
+function prettyOutLabel(label){
+  if(!label) return '';
+  // "Default - AirPods Pro (Bluetooth)" -> "AirPods Pro"
+  return label.replace(/^Default\s*-\s*/i, '').replace(/\s*\((Bluetooth|bluetooth)\)\s*$/,'').trim();
+}
+function outIcon(name){
+  const n = (name||'').toLowerCase();
+  if(/airpod|buds|headphone|headset|beats/.test(n)) return '🎧';
+  if(/pa|speaker|monitor|interface|usb|hdmi|display|aggregate/.test(n)) return '🔊';
+  return '🔊';
+}
+function setRouteBadge(name){
+  const btn = $('#routeInfo');
+  const now = $('#outNow');
+  const label = name || 'Auto';
+  if(btn) btn.textContent = outIcon(name) + ' ' + label;
+  if(now) now.textContent = label;
+  ROUTE.current = name || '';
+}
+
+async function refreshOutputUI(){
+  const row = $('#outRouteRow');
+  ROUTE.canSink = (actx && typeof actx.setSinkId === 'function') ||
+    typeof document.createElement('audio').setSinkId === 'function';
+
+  let outs = [];
   try{
-    // need a permission to see labels; enumerate anyway
     const devs = await navigator.mediaDevices.enumerateDevices();
-    const outs = devs.filter(d => d.kind === 'audiooutput');
-    if(!row) return;
-    if(outs.length <= 1){
-      row.innerHTML = '<div class="pill">One output device — routing is automatic</div>';
-      return;
-    }
+    outs = devs.filter(d => d.kind === 'audiooutput');
+  }catch(_){}
+
+  // best-effort name of the active device (labels are only populated after a
+  // media-permission grant, and never on iOS Safari — then we just say "Auto")
+  const savedId = store.get('outDevice', '');
+  let activeName = '';
+  const active = outs.find(d => d.deviceId === (savedId || 'default')) || outs.find(d => d.label);
+  if(active && active.label) activeName = prettyOutLabel(active.label);
+  setRouteBadge(activeName);
+
+  if(!row) return;
+  if(ROUTE.canSink && outs.length > 1){
     row.innerHTML = `<label class="fld">Output device
-      <select id="outDevice">${outs.map(d=>`<option value="${d.deviceId}">${escapeHtml(d.label || 'Output '+d.deviceId.slice(0,4))}</option>`).join('')}</select>
+      <select id="outDevice">${outs.map(d=>`<option value="${d.deviceId}">${escapeHtml(prettyOutLabel(d.label) || 'Output '+String(d.deviceId).slice(0,4))}</option>`).join('')}</select>
     </label>`;
+    if(savedId && outs.some(o=>o.deviceId===savedId)) $('#outDevice').value = savedId;
     $('#outDevice').addEventListener('change', async e=>{
       const id = e.target.value;
       try{
         ensureAudio();
-        if(typeof actx.setSinkId === 'function'){ await actx.setSinkId(id); }
+        if(typeof actx.setSinkId === 'function') await actx.setSinkId(id);
         store.set('outDevice', id);
+        const picked = outs.find(o=>o.deviceId===id);
+        setRouteBadge(prettyOutLabel(picked && picked.label) || 'Selected');
         toast('Output set');
-      }catch(err){ toast('Could not switch output: ' + err.message, true); }
+      }catch(err){ toast('Could not switch output: ' + (err.message||err), true); }
     });
-    const saved = store.get('outDevice', '');
-    if(saved && outs.some(o=>o.deviceId===saved)){ $('#outDevice').value = saved; }
-  }catch(_){}
+  }else{
+    row.innerHTML = '';
+  }
+}
+
+async function wireRouting(){
+  const btn = $('#routeInfo');
+  if(btn){
+    btn.addEventListener('click', ()=>{
+      const tab = $('nav.tabs button[data-tab="metro"]');
+      if(tab) tab.click();
+      const det = $$('.adv').find(d => /Audio output/.test(d.querySelector('summary')?.textContent || ''));
+      if(det){ det.open = true; det.scrollIntoView({behavior:'smooth', block:'center'}); }
+    });
+  }
+  await refreshOutputUI();
+  // AirPods / speaker connected or removed -> update the badge
+  if(navigator.mediaDevices && navigator.mediaDevices.addEventListener){
+    navigator.mediaDevices.addEventListener('devicechange', ()=>{
+      refreshOutputUI();
+      toast('Audio device changed');
+    });
+  }
 }
 
 /* ============================================================
