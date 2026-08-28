@@ -132,6 +132,8 @@
   .seq-row .grow{flex:1}
   .seq-row .x{border:none;background:none;color:var(--bad);font-size:18px;min-width:34px}
   .seq-cur{outline:2px solid var(--accent);outline-offset:1px}
+  .seg-acc{gap:5px}
+  .seg-acc .accent-cell{width:31px;height:40px}
 
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
@@ -392,14 +394,38 @@
             </label>
           </div>
         </div>
-        <div class="row" style="margin-top:10px">
-          <label class="fld grow">Count-in
-            <select id="showCountIn"><option value="0">None</option><option value="1" selected>1 bar</option><option value="2">2 bars</option></select>
+        <div class="grid3" style="margin-top:10px">
+          <label class="fld">Count-in
+            <select id="ciBars">
+              <option value="0">Off</option><option value="1" selected>1 bar</option>
+              <option value="2">2 bars</option><option value="3">3 bars</option><option value="4">4 bars</option>
+            </select>
           </label>
-          <label class="fld grow">Volume
-            <input type="range" id="showVol" min="0" max="100" value="85" />
+          <label class="fld">Prep meter
+            <select id="ciMeter"></select>
+          </label>
+          <label class="fld">Prep tempo
+            <input type="number" id="ciBpm" min="10" max="400" placeholder="match" />
           </label>
         </div>
+        <label class="fld" style="margin-top:10px">Volume
+          <input type="range" id="showVol" min="0" max="100" value="85" />
+        </label>
+        <div class="hint">The prep can be a different time signature than the show — e.g. count off in <b>4/4</b> for a show that opens in <b>3/4</b>. Leave prep tempo blank to match the opening tempo.</div>
+      </div>
+
+      <div class="card">
+        <h2>Sound</h2>
+        <div class="grid2">
+          <label class="fld">Click <select id="showSoundMain"></select></label>
+          <label class="fld">Subdivision <select id="showSoundSub"></select></label>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn sm" id="showPreviewSound">Preview</button>
+          <label class="fld grow">Pitch <input type="range" id="showPitch" min="-12" max="12" value="0" /></label>
+          <label class="fld" style="width:92px">Swing % <input type="number" id="showSwing" min="50" max="75" value="62" /></label>
+        </div>
+        <div class="hint">One click sound for the whole show. Swing % applies to any segment set to a Swing subdivision.</div>
       </div>
 
       <div class="card">
@@ -844,11 +870,14 @@ const VOICE_GROUPS = [
   ['Melodic',         ['bell','triangle','marimba','pluck']],
   ['Percussion',      ['cowbell','shaker','hat','snare','tabla','conga','kick']],
 ];
-function fillSoundSelects(){
-  const html = VOICE_GROUPS.map(([g,keys])=>
+function soundOptionsHTML(){
+  return VOICE_GROUPS.map(([g,keys])=>
     `<optgroup label="${g}">` +
     keys.filter(k=>VOICES[k]).map(k=>`<option value="${k}">${VOICE_LABELS[k]||k}</option>`).join('') +
     `</optgroup>`).join('');
+}
+function fillSoundSelects(){
+  const html = soundOptionsHTML();
   ['#soundMain','#soundSub'].forEach(sel=>{ $(sel).innerHTML = html; });
   $('#soundMain').value = 'wood';
   $('#soundSub').value = 'click';
@@ -925,13 +954,16 @@ function currentTrainerBpm(){
   return clamp(M.bpm + steps * M.trAmt, 10, Math.max(M.bpm, M.trMax));
 }
 
-function scheduleClick(ctx, dest, when, level, isSub){
+function scheduleClick(ctx, dest, when, level, isSub, cfg){
   if(level <= 0) return;
   const accent = level === 3;
   const gainByLevel = level===1 ? 0.5 : level===3 ? 1.15 : 0.85;
-  const voiceName = isSub ? M.soundSub : M.soundMain;
+  const main  = (cfg && cfg.main)  || M.soundMain;
+  const sub   = (cfg && cfg.sub)   || M.soundSub;
+  const pitch = (cfg && cfg.pitch != null) ? cfg.pitch : M.pitch;
+  const voiceName = isSub ? sub : main;
   const voice = VOICES[voiceName] || VOICES.wood;
-  const freqMul = Math.pow(2, (M.pitch/12)) * (isSub ? 1.15 : 1);
+  const freqMul = Math.pow(2, (pitch/12)) * (isSub ? 1.15 : 1);
   try{
     voice(ctx, dest, when, {
       gain: gainByLevel * (isSub ? 0.7 : 1),
@@ -1393,11 +1425,14 @@ function wireSw(sel, cb){
    ============================================================ */
 const SHOW = {
   id:null, name:'Untitled show',
-  segments:[],   // {name, measures, tsNum, tsDen, beatUnit, bpm, bpmEnd(optional), subdiv, accentFirst}
-  countIn:1, volume:0.85,
+  segments:[],   // {name, measures, tsNum, tsDen, beatUnit, bpm, bpmEnd, subdiv, accents:[]}
+  countIn:{ bars:1, num:4, den:4, unit:'4', bpm:null },
+  volume:0.85,
+  soundMain:'wood', soundSub:'click', pitch:0, swingPct:62,
   playing:false,
   // runtime
-  _next:0, _segIdx:0, _measInSeg:0, _beatInMeas:0, _globalMeas:1, _countdown:0, _timer:null, _beatsElapsedInSeg:0,
+  _next:0, _segIdx:0, _measInSeg:0, _beatInMeas:0, _globalMeas:1, _countdown:0, _timer:null,
+  _beatsElapsedInSeg:0, _ciBpb:4, _ciBpm:120,
 };
 
 function newSegment(prev){
@@ -1409,8 +1444,43 @@ function newSegment(prev){
     bpm: prev? (prev.bpmEnd || prev.bpm) : 120,
     bpmEnd: null,
     subdiv:'1',
-    accentFirst:true,
+    accents: null,   // per-beat: 0 silent,1 soft,2 normal,3 accent; null -> auto (beat 1 accented)
   };
+}
+// tolerant accent array for a segment, sized to its beats-per-measure
+function segAccents(s){
+  const n = segBeatsPerMeasure(s);
+  const src = Array.isArray(s.accents) ? s.accents : [];
+  const legacyOff = (!src.length && s.accentFirst === false);
+  const a = [];
+  for(let i=0;i<n;i++){
+    let v = src[i];
+    if(v == null) v = legacyOff ? 2 : (i===0 ? 3 : 2);
+    a[i] = clamp(v|0, 0, 3);
+  }
+  return a;
+}
+function normalizeCountIn(ci){
+  if(typeof ci === 'number') return { bars: clamp(ci|0,0,4), num:4, den:4, unit:'4', bpm:null };
+  if(!ci || typeof ci !== 'object') return { bars:1, num:4, den:4, unit:'4', bpm:null };
+  return {
+    bars: clamp(ci.bars|0, 0, 4),
+    num: clamp(+ci.num||4, 1, 16),
+    den: [2,4,8,16].includes(+ci.den) ? +ci.den : 4,
+    unit: ['1','2','4','8','3d'].includes(String(ci.unit)) ? String(ci.unit) : '4',
+    bpm: ci.bpm ? clamp(+ci.bpm, 10, 400) : null,
+  };
+}
+function normalizeSegment(raw){
+  const s = Object.assign(newSegment(null), raw);
+  s.tsNum = clamp(+s.tsNum||4,1,16); s.tsDen = [2,4,8,16].includes(+s.tsDen)?+s.tsDen:4;
+  s.beatUnit = ['1','2','4','8','3d'].includes(String(s.beatUnit)) ? String(s.beatUnit) : '4';
+  s.measures = clamp(+s.measures||1,1,512);
+  s.bpm = clamp(+s.bpm||120,10,400);
+  s.bpmEnd = s.bpmEnd ? clamp(+s.bpmEnd,10,400) : null;
+  s.accents = segAccents(s);
+  s.accentFirst = s.accents[0] === 3;   // kept for backward compat with older exports
+  return s;
 }
 function segBeatsPerMeasure(s){
   const mlq = s.tsNum * (4/s.tsDen);
@@ -1422,6 +1492,17 @@ function segSecondsPerBeat(s, bpm){
   return (60/bpm) * buq;
 }
 function segTotalBeats(s){ return segBeatsPerMeasure(s) * s.measures; }
+function showSubPlan(sd, swingPct){
+  switch(sd){
+    case '2': return [.5];
+    case '3': return [1/3, 2/3];
+    case '4': return [.25, .5, .75];
+    case '6': return [1/6, 2/6, 3/6, 4/6, 5/6];
+    case 'swing': return [ clamp(swingPct||62, 50, 75) / 100 ];
+    case 'dot': return [.75];
+    default: return [];
+  }
+}
 function showTotalMeasures(){ return SHOW.segments.reduce((a,s)=>a + (s.measures|0), 0); }
 function segStartMeasure(idx){
   let m = 1;
@@ -1494,13 +1575,13 @@ function renderSegList(){
         <label class="fld">Ramp to<input type="number" min="10" max="400" placeholder="—" value="${s.bpmEnd??''}" data-k="bpmEnd"></label>
         <label class="fld">Subdivision
           <select data-k="subdiv">
-            ${[['1','None'],['2','8ths'],['3','Trip'],['4','16ths'],['6','Sext'],['swing','Swing']].map(([v,l])=>`<option value="${v}" ${v===s.subdiv?'selected':''}>${l}</option>`).join('')}
+            ${[['1','None'],['2','8ths'],['3','Trip'],['4','16ths'],['6','Sext'],['swing','Swing'],['dot','Dot 8-16']].map(([v,l])=>`<option value="${v}" ${v===s.subdiv?'selected':''}>${l}</option>`).join('')}
           </select>
         </label>
-        <label class="fld" style="grid-column:span 2;justify-content:center">
-          <span class="muted">Accent beat 1</span>
-          <div class="sw ${s.accentFirst?'on':''}" data-k="accentFirst" style="margin-top:2px"></div>
-        </label>
+        <div class="fld" style="grid-column:span 3">
+          <span class="muted">Accents — tap to cycle (normal → accent → soft → silent)</span>
+          <div class="accent-editor seg-acc"></div>
+        </div>
       </div>
       <div class="seg-actions">
         <button class="btn" data-act="up">↑</button>
@@ -1510,20 +1591,36 @@ function renderSegList(){
       </div>`;
 
     div.querySelector('input.name').addEventListener('change', e=>{ s.name = e.target.value; saveShowState(); renderShowMeta(); });
+
+    // per-beat accent editor
+    const accWrap = div.querySelector('.seg-acc');
+    s.accents = segAccents(s);
+    s.accents.forEach((lvl,i)=>{
+      const c = document.createElement('div');
+      c.className = 'accent-cell';
+      c.dataset.lvl = lvl;
+      c.innerHTML = `<div class="bar"></div><span>${i+1}</span>`;
+      c.addEventListener('click', ()=>{
+        const order = [2,3,1,0];
+        s.accents[i] = order[(order.indexOf(s.accents[i] ?? 2) + 1) % order.length];
+        s.accentFirst = s.accents[0] === 3;
+        renderSegList(); saveShowState();
+      });
+      accWrap.appendChild(c);
+    });
+
     $$('[data-k]', div).forEach(ctrl=>{
       const k = ctrl.dataset.k;
-      if(ctrl.classList.contains('sw')){
-        ctrl.addEventListener('click', ()=>{ s[k] = !s[k]; ctrl.classList.toggle('on', s[k]); saveShowState(); });
-        return;
-      }
       ctrl.addEventListener('change', ()=>{
         let v = ctrl.value;
+        const meterKeys = ['preset','tsNum','tsDen','beatUnit'];
         if(k === 'preset'){
           if(v !== ''){ const p = METER_PRESETS[+v]; s.tsNum = p.num; s.tsDen = p.den; s.beatUnit = p.unit; }
         }
         else if(k === 'bpmEnd'){ s.bpmEnd = v === '' ? null : clamp(+v,10,400); }
         else if(['measures','tsNum','tsDen','bpm'].includes(k)){ s[k] = clamp(+v, k==='bpm'?10:1, k==='bpm'?400: k==='measures'?512:16); }
         else { s[k] = v; }
+        if(meterKeys.includes(k)) s.accents = segAccents(s);   // resize accents to new meter
         renderSegList(); renderShowMeta(); saveShowState();
       });
     });
@@ -1566,7 +1663,22 @@ function startShow(){
   SHOW._beatInMeas = 0;
   SHOW._globalMeas = startMeas;
   SHOW._beatsElapsedInSeg = measInSeg * segBeatsPerMeasure(SHOW.segments[segIdx]);
-  SHOW._countdown = +$('#showCountIn').value || 0;
+
+  // count-in: its own meter, and its own tempo (or match the opening tempo)
+  const ci = SHOW.countIn || { bars:0 };
+  SHOW._countdown = ci.bars | 0;
+  const ciMeter = { tsNum: ci.num||4, tsDen: ci.den||4, beatUnit: ci.unit||'4' };
+  SHOW._ciBpb = segBeatsPerMeasure(ciMeter);
+  let startBpm;
+  {
+    const s0 = SHOW.segments[segIdx];
+    const tb = segTotalBeats(s0);
+    const b0 = s0.bpm, b1 = s0.bpmEnd || s0.bpm;
+    const f = tb<=1 ? 0 : clamp(SHOW._beatsElapsedInSeg, 0, tb-1) / (tb-1);
+    startBpm = b0 + (b1 - b0) * f;
+  }
+  SHOW._ciBpm = ci.bpm ? clamp(+ci.bpm, 10, 400) : Math.round(startBpm);
+  SHOW._ciMeter = ciMeter;
   SHOW._next = actx.currentTime + 0.1;
   SHOW.playing = true;
 
@@ -1598,51 +1710,50 @@ function showTick(){
     while(SHOW._next < ctx.currentTime + SCHEDULE_AHEAD){
       const inCount = SHOW._countdown > 0;
       const seg = SHOW.segments[SHOW._segIdx];
-      if(!seg){ stopShow(); return; }
+      if(!seg && !inCount){ stopShow(); return; }
 
-      const bpb = segBeatsPerMeasure(seg);
-      const tb = segTotalBeats(seg);
-      const b0 = seg.bpm, b1 = seg.bpmEnd || seg.bpm;
-      const f = tb<=1 ? 0 : clamp(SHOW._beatsElapsedInSeg,0,tb-1)/(tb-1);
-      const bpm = b0 + (b1-b0)*f;
-      const spb = segSecondsPerBeat(seg, bpm);
+      const scfg = { main:SHOW.soundMain, sub:SHOW.soundSub, pitch:SHOW.pitch };
+      let bpb, spb, bpm, level, subPlan = [], meterLabel;
 
-      // click level
-      let level;
-      if(inCount){ level = SHOW._beatInMeas === 0 ? 3 : 2; }
-      else { level = (SHOW._beatInMeas === 0 && seg.accentFirst) ? 3 : 2; }
-
-      const voiceMain = M.soundMain, voiceSub = M.soundSub;
-      // main
-      scheduleClick(ctx, master, SHOW._next, level, false);
-      // subdivisions (skip during count-in)
-      if(!inCount && seg.subdiv && seg.subdiv !== '1'){
-        const plan = (function(sd){
-          switch(sd){
-            case '2': return [.5];
-            case '3': return [1/3,2/3];
-            case '4': return [.25,.5,.75];
-            case '6': return [1/6,2/6,3/6,4/6,5/6];
-            case 'swing': return [0.62];
-            default: return [];
-          }
-        })(seg.subdiv);
-        for(const fr of plan) scheduleClick(ctx, master, SHOW._next + fr*spb, 1, true);
+      if(inCount){
+        const cm = SHOW._ciMeter || { tsNum:4, tsDen:4, beatUnit:'4' };
+        bpb = SHOW._ciBpb;
+        bpm = SHOW._ciBpm;
+        spb = segSecondsPerBeat(cm, bpm);
+        level = SHOW._beatInMeas === 0 ? 3 : 2;
+        meterLabel = cm.tsNum + '/' + cm.tsDen;
+      } else {
+        const tb = segTotalBeats(seg);
+        const b0 = seg.bpm, b1 = seg.bpmEnd || seg.bpm;
+        const f = tb<=1 ? 0 : clamp(SHOW._beatsElapsedInSeg,0,tb-1)/(tb-1);
+        bpb = segBeatsPerMeasure(seg);
+        bpm = b0 + (b1-b0)*f;
+        spb = segSecondsPerBeat(seg, bpm);
+        level = segAccents(seg)[SHOW._beatInMeas] ?? 2;
+        meterLabel = seg.tsNum + '/' + seg.tsDen;
+        if(seg.subdiv && seg.subdiv !== '1') subPlan = showSubPlan(seg.subdiv, SHOW.swingPct);
       }
+
+      // main click + subdivisions
+      scheduleClick(ctx, master, SHOW._next, level, false, scfg);
+      for(const fr of subPlan) scheduleClick(ctx, master, SHOW._next + fr*spb, 1, true, scfg);
 
       // UI
       const gm = SHOW._globalMeas;
-      const segName = seg.name || `Segment ${SHOW._segIdx+1}`;
+      const segName = seg ? (seg.name || `Segment ${SHOW._segIdx+1}`) : '';
       const bInM = SHOW._beatInMeas;
+      const barsLeft = SHOW._countdown;
       const delay = Math.max(0, (SHOW._next - ctx.currentTime)*1000);
       const shownBpm = Math.round(bpm);
       setTimeout(()=>{
         if(!SHOW.playing) return;
-        $('#showMeasure').textContent = inCount ? 'count' : gm;
-        $('#showMeasureSub').textContent = inCount ? 'get ready' : 'measure';
+        $('#showMeasure').textContent = inCount ? 'prep' : gm;
+        $('#showMeasureSub').textContent = inCount ? `${meterLabel} · ${barsLeft} bar${barsLeft===1?'':'s'} left` : 'measure';
         const nextSeg = SHOW.segments[SHOW._segIdx+1];
         const nextTxt = nextSeg ? ` · next: ${nextSeg.name||'seg '+(SHOW._segIdx+2)} @ ${nextSeg.bpm}` : '';
-        $('#showStatus').textContent = inCount ? 'Count-in…' : `${segName} · ${seg.tsNum}/${seg.tsDen} · ${shownBpm} BPM · beat ${bInM+1}/${bpb}${nextTxt}`;
+        $('#showStatus').textContent = inCount
+          ? `Count-in · ${meterLabel} · ${shownBpm} BPM · beat ${bInM+1}/${bpb}`
+          : `${segName} · ${meterLabel} · ${shownBpm} BPM · beat ${bInM+1}/${bpb}${nextTxt}`;
         if(M.flash){ const ov=$('.flash-overlay'); ov.classList.add('hit'); setTimeout(()=>ov.classList.remove('hit'),70); }
       }, delay);
 
@@ -1682,27 +1793,38 @@ function showTick(){
 }
 
 /* ---- show files ---- */
+function applyShowRecord(rec){
+  SHOW.id = rec.id || ('show_' + Date.now());
+  SHOW.name = rec.name || 'Untitled show';
+  SHOW.segments = (rec.segments || []).map(normalizeSegment);
+  if(!SHOW.segments.length) SHOW.segments = [ newSegment(null) ];
+  SHOW.countIn = normalizeCountIn(rec.countIn);
+  SHOW.volume = rec.volume ?? 0.85;
+  SHOW.soundMain = VOICES[rec.soundMain] ? rec.soundMain : 'wood';
+  SHOW.soundSub = VOICES[rec.soundSub] ? rec.soundSub : 'click';
+  SHOW.pitch = clamp(+rec.pitch || 0, -12, 12);
+  SHOW.swingPct = clamp(+rec.swingPct || 62, 50, 75);
+}
 function blankShow(){
-  SHOW.id = 'show_' + Date.now();
-  SHOW.name = 'Untitled show';
-  SHOW.segments = [ newSegment(null) ];
+  applyShowRecord({ id:'show_'+Date.now(), name:'Untitled show', segments:[ newSegment(null) ] });
   saveShowState();
-  renderSegList(); renderShowMeta();
+  renderSegList(); renderShowMeta(); syncShowControls();
+}
+function showRecord(){
+  return {
+    id:SHOW.id, name:SHOW.name, segments:SHOW.segments,
+    countIn:SHOW.countIn, volume:SHOW.volume,
+    soundMain:SHOW.soundMain, soundSub:SHOW.soundSub, pitch:SHOW.pitch, swingPct:SHOW.swingPct,
+  };
 }
 function saveShowState(){
-  store.set('show_current', {
-    id:SHOW.id, name:SHOW.name, segments:SHOW.segments, countIn:SHOW.countIn, volume:SHOW.volume,
-  });
+  store.set('show_current', showRecord());
   renderShowMeta();
 }
 function loadShowState(){
   const s = store.get('show_current', null);
   if(s && Array.isArray(s.segments) && s.segments.length){
-    SHOW.id = s.id || ('show_'+Date.now());
-    SHOW.name = s.name || 'Untitled show';
-    SHOW.segments = s.segments;
-    SHOW.countIn = s.countIn ?? 1;
-    SHOW.volume = s.volume ?? 0.85;
+    applyShowRecord(s);
   }else{
     blankShow();
   }
@@ -1710,7 +1832,7 @@ function loadShowState(){
 function showLibrary(){ return store.get('show_lib', []); }
 function saveToLibrary(){
   const lib = showLibrary();
-  const rec = { id:SHOW.id, name:SHOW.name, segments:SHOW.segments, savedAt:Date.now() };
+  const rec = Object.assign(showRecord(), { savedAt:Date.now() });
   const i = lib.findIndex(x=>x.id===SHOW.id);
   if(i>=0) lib[i] = rec; else lib.push(rec);
   store.set('show_lib', lib);
@@ -1731,9 +1853,8 @@ function renderLibrary(){
       <button class="btn sm" data-a="load">Open</button>
       <button class="btn sm bad" data-a="del">✕</button>`;
     el.querySelector('[data-a="load"]').addEventListener('click', ()=>{
-      SHOW.id = rec.id; SHOW.name = rec.name;
-      SHOW.segments = JSON.parse(JSON.stringify(rec.segments));
-      saveShowState(); renderSegList(); renderShowMeta();
+      applyShowRecord(JSON.parse(JSON.stringify(rec)));
+      saveShowState(); renderSegList(); renderShowMeta(); syncShowControls();
       toast('Opened "'+rec.name+'"');
       window.scrollTo({top:0,behavior:'smooth'});
     });
@@ -1745,7 +1866,7 @@ function renderLibrary(){
   });
 }
 function exportShowFile(){
-  const data = JSON.stringify({ app:'FieldTone', v:1, name:SHOW.name, segments:SHOW.segments }, null, 2);
+  const data = JSON.stringify(Object.assign({ app:'FieldTone', v:2 }, showRecord()), null, 2);
   const blob = new Blob([data], {type:'application/json'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -1759,10 +1880,11 @@ function importShowFile(file){
     try{
       const obj = JSON.parse(r.result);
       if(!obj || !Array.isArray(obj.segments)) throw new Error('Not a FieldTone show file');
-      SHOW.id = 'show_' + Date.now();
-      SHOW.name = obj.name || file.name.replace(/\.(fieldtone\.)?json$/,'');
-      SHOW.segments = obj.segments.map(s=>Object.assign(newSegment(null), s));
-      saveShowState(); renderSegList(); renderShowMeta();
+      applyShowRecord(Object.assign({}, obj, {
+        id: 'show_' + Date.now(),
+        name: obj.name || file.name.replace(/\.(fieldtone\.)?json$/,''),
+      }));
+      saveShowState(); renderSegList(); renderShowMeta(); syncShowControls();
       toast('Imported "'+SHOW.name+'"');
     }catch(err){ toast('Import failed: '+err.message, true); }
   };
@@ -1775,40 +1897,44 @@ async function renderClickTrack(){
   toast('Rendering…');
   const sampleRate = 44100;
   const first = SHOW.segments[0];
-  const ciBars = SHOW.countIn | 0;
-  const ciBpb = segBeatsPerMeasure(first);
-  const ciSpb = segSecondsPerBeat(first, first.bpm);
+  const ci = normalizeCountIn(SHOW.countIn);
+  const ciMeter = { tsNum: ci.num, tsDen: ci.den, beatUnit: ci.unit };
+  const ciBars = ci.bars | 0;
+  const ciBpb = segBeatsPerMeasure(ciMeter);
+  const ciBpm = ci.bpm ? ci.bpm : first.bpm;
+  const ciSpb = segSecondsPerBeat(ciMeter, ciBpm);
   const preRoll = ciBars * ciBpb * ciSpb;
   const totalSec = showTotalSeconds() + preRoll + 1.0;
   const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
   const octx = new OfflineCtx(1, Math.ceil(totalSec*sampleRate), sampleRate);
   const obus = octx.createGain(); obus.gain.value = 0.9; obus.connect(octx.destination);
 
+  const pMul = Math.pow(2, SHOW.pitch/12);
+  const play = (when, level, isSub)=>{
+    if(level <= 0) return;
+    const name = isSub ? SHOW.soundSub : SHOW.soundMain;
+    const gain = level===1 ? 0.4 : level===3 ? 1.15 : 0.85;
+    try{ (VOICES[name] || (isSub?VOICES.click:VOICES.wood))(octx, obus, when, { gain, freqMul: pMul*(isSub?1.15:1), accent: level===3, decayMul:1 }); }catch(_){}
+  };
+
   let t = 0.05;
-  // count-in clicks (accent on beat 1, no subdivisions)
+  // count-in (its own meter + tempo, accent on beat 1, no subdivisions)
   for(let b = 0; b < ciBars * ciBpb; b++){
-    const lvl = (b % ciBpb === 0) ? 3 : 2;
-    try{ (VOICES[M.soundMain]||VOICES.wood)(octx, obus, t, { gain: lvl===3?1.15:0.85, freqMul: Math.pow(2,M.pitch/12), accent: lvl===3, decayMul:1 }); }catch(_){}
+    play(t, (b % ciBpb === 0) ? 3 : 2, false);
     t += ciSpb;
   }
   for(const seg of SHOW.segments){
     const bpb = segBeatsPerMeasure(seg);
+    const acc = segAccents(seg);
     const tb = segTotalBeats(seg);
     const b0 = seg.bpm, b1 = seg.bpmEnd || seg.bpm;
+    const fr = (seg.subdiv && seg.subdiv !== '1') ? showSubPlan(seg.subdiv, SHOW.swingPct) : [];
     for(let i=0;i<tb;i++){
       const f = tb<=1?0:i/(tb-1);
       const bpm = b0 + (b1-b0)*f;
       const spb = segSecondsPerBeat(seg, bpm);
-      const beatInMeas = i % bpb;
-      const level = (beatInMeas===0 && seg.accentFirst) ? 3 : 2;
-      const vName = M.soundMain;
-      try{
-        (VOICES[vName]||VOICES.wood)(octx, obus, t, { gain: level===3?1.15:0.85, freqMul: Math.pow(2,M.pitch/12), accent: level===3, decayMul:1 });
-      }catch(_){}
-      if(seg.subdiv && seg.subdiv!=='1'){
-        const fr = seg.subdiv==='2'?[.5]: seg.subdiv==='3'?[1/3,2/3]: seg.subdiv==='4'?[.25,.5,.75]: seg.subdiv==='6'?[1/6,2/6,3/6,4/6,5/6]: seg.subdiv==='swing'?[.62]:[];
-        for(const x of fr){ try{ (VOICES[M.soundSub]||VOICES.click)(octx, obus, t + x*spb, {gain:0.4, freqMul:Math.pow(2,M.pitch/12)*1.15, accent:false, decayMul:1}); }catch(_){} }
-      }
+      play(t, acc[i % bpb] ?? 2, false);
+      for(const x of fr) play(t + x*spb, 1, true);
       t += spb;
     }
   }
@@ -1854,14 +1980,60 @@ function audioBufferToWav(buffer){
   return ab;
 }
 
+function syncShowControls(){
+  if(!$('#ciMeter')) return;
+  $('#showVol').value = Math.round(SHOW.volume*100);
+  $('#showSoundMain').value = SHOW.soundMain;
+  $('#showSoundSub').value = SHOW.soundSub;
+  $('#showPitch').value = SHOW.pitch;
+  $('#showSwing').value = SHOW.swingPct;
+  $('#ciBars').value = String(SHOW.countIn.bars);
+  $('#ciBpm').value = SHOW.countIn.bpm ?? '';
+  const idx = METER_PRESETS.findIndex(p => p.num===SHOW.countIn.num && p.den===SHOW.countIn.den && String(p.unit)===String(SHOW.countIn.unit));
+  $('#ciMeter').value = idx >= 0 ? String(idx) : 'custom';
+}
+
 function wireShow(){
+  // populate sound + prep-meter selects before loading state
+  $('#showSoundMain').innerHTML = soundOptionsHTML();
+  $('#showSoundSub').innerHTML = soundOptionsHTML();
+  $('#ciMeter').innerHTML =
+    METER_PRESETS.map((p,i)=>`<option value="${i}">${p.label}${p.g?' · '+p.g:''}</option>`).join('') +
+    '<option value="custom" hidden>(custom)</option>';
+
   loadShowState();
   renderSegList(); renderShowMeta(); renderLibrary();
-
-  $('#showCountIn').value = String(SHOW.countIn);
-  $('#showVol').value = Math.round(SHOW.volume*100);
+  syncShowControls();
 
   $('#showPlayBtn').addEventListener('click', toggleShow);
+
+  $('#showSoundMain').addEventListener('change', e=>{ SHOW.soundMain = e.target.value; saveShowState(); });
+  $('#showSoundSub').addEventListener('change', e=>{ SHOW.soundSub = e.target.value; saveShowState(); });
+  $('#showPitch').addEventListener('input', e=>{ SHOW.pitch = clamp(+e.target.value,-12,12); saveShowState(); });
+  $('#showSwing').addEventListener('change', e=>{ SHOW.swingPct = clamp(+e.target.value,50,75); e.target.value = SHOW.swingPct; saveShowState(); });
+  $('#showPreviewSound').addEventListener('click', ()=>{
+    ensureAudio();
+    const cfg = { main:SHOW.soundMain, sub:SHOW.soundSub, pitch:SHOW.pitch };
+    const t = actx.currentTime + 0.02;
+    scheduleClick(actx, master, t, 3, false, cfg);
+    scheduleClick(actx, master, t + 0.28, 1, true, cfg);
+    scheduleClick(actx, master, t + 0.44, 1, true, cfg);
+  });
+
+  $('#ciBars').addEventListener('change', e=>{ SHOW.countIn.bars = clamp(+e.target.value,0,4); saveShowState(); });
+  $('#ciMeter').addEventListener('change', e=>{
+    if(e.target.value !== 'custom'){
+      const p = METER_PRESETS[+e.target.value];
+      SHOW.countIn.num = p.num; SHOW.countIn.den = p.den; SHOW.countIn.unit = p.unit;
+    }
+    saveShowState();
+  });
+  $('#ciBpm').addEventListener('change', e=>{
+    const v = e.target.value.trim();
+    SHOW.countIn.bpm = v === '' ? null : clamp(+v,10,400);
+    if(SHOW.countIn.bpm) e.target.value = SHOW.countIn.bpm;
+    saveShowState();
+  });
   $('#addSeg').addEventListener('click', ()=>{
     SHOW.segments.push(newSegment(SHOW.segments[SHOW.segments.length-1]));
     renderSegList(); renderShowMeta(); saveShowState();
@@ -1877,7 +2049,6 @@ function wireShow(){
   $('#importShow').addEventListener('change', e=>{ if(e.target.files[0]) importShowFile(e.target.files[0]); e.target.value=''; });
   $('#renderClick').addEventListener('click', renderClickTrack);
 
-  $('#showCountIn').addEventListener('change', e=>{ SHOW.countIn = +e.target.value; saveShowState(); });
   $('#showVol').addEventListener('input', e=>{ SHOW.volume = (+e.target.value)/100; if(master) master.gain.value = 0.15 + SHOW.volume*0.95; });
 }
 
