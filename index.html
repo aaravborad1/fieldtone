@@ -210,6 +210,23 @@
   .list-item .li-main b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .list-item .li-main span{font-size:11.5px;color:var(--dim)}
 
+  .lib-head{display:flex;align-items:baseline;gap:8px;margin:2px 2px 12px}
+  .lib-head h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:700}
+  .showrow{display:flex;align-items:center;gap:12px;padding:15px 14px;border:1px solid var(--line);border-radius:14px;
+    margin-bottom:10px;background:var(--panel);cursor:pointer;transition:border-color .12s,background .12s}
+  .showrow:active{background:var(--panel2)}
+  .showrow.playing{border-color:var(--accent)}
+  .showrow .sr-body{flex:1;min-width:0}
+  .showrow .sr-name{font-size:16px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .showrow .sr-sub{font-size:12px;color:var(--dim);margin-top:2px;font-variant-numeric:tabular-nums}
+  .showrow .sr-go{color:var(--dimmer);font-size:20px;flex:none}
+  .showrow .sr-del{flex:none;width:40px;height:40px;border-radius:10px;border:1px solid var(--line);background:none;
+    color:var(--dimmer);font-size:16px}
+  .showrow .sr-del:active{color:var(--bad);border-color:var(--bad)}
+  .lib-empty{text-align:center;color:var(--dim);padding:34px 16px;border:1px dashed var(--line);border-radius:14px}
+  .libbar{display:flex;gap:10px;margin-top:16px}
+  .libbar .btn{min-height:54px}
+
   .kbd{font-size:11px;color:var(--dimmer)}
   .accent-editor{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:8px}
   .accent-cell{width:38px;height:48px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:9px;color:var(--dimmer);font-weight:700}
@@ -389,14 +406,31 @@
 
     <!-- ================= SHOW ================= -->
     <section class="view" id="view-show">
-      <div class="card">
-        <div class="row spread">
-          <div>
-            <div style="font-weight:800;font-size:16px" id="showName">Untitled show</div>
-            <div class="muted" id="showMeta">0 segments · 0 measures</div>
-          </div>
-          <button class="btn sm" id="renameShow">Rename</button>
+
+      <!-- LIBRARY -->
+      <div id="showLibView">
+        <div class="lib-head">
+          <h2 style="margin:0">Your shows</h2>
+          <span class="muted" id="libCount"></span>
         </div>
+        <div id="showLibraryList"></div>
+        <div class="libbar">
+          <button class="btn primary grow" id="newShow">+ New show</button>
+          <button class="btn" id="importShowBtn">Import</button>
+          <input type="file" id="importShow" accept="application/json,.json" hidden />
+        </div>
+      </div>
+
+      <!-- EDITOR -->
+      <div id="showEditView" hidden>
+      <div class="row" style="gap:8px;margin-bottom:10px">
+        <button class="btn sm" id="backToLib">‹ All shows</button>
+        <span class="grow"></span>
+        <button class="btn sm" id="renameShow">Rename</button>
+      </div>
+      <div class="card">
+        <div style="font-weight:800;font-size:18px" id="showName">Untitled show</div>
+        <div class="muted" id="showMeta">0 segments · 0 measures</div>
         <div class="big-measure" style="margin-top:10px">
           <span id="showMeasure">—</span>
           <small id="showMeasureSub">measure</small>
@@ -456,20 +490,18 @@
       </div>
 
       <div class="card">
-        <h2>Show files</h2>
-        <div class="grid2">
-          <button class="btn sm" id="newShow">New</button>
-          <button class="btn sm" id="saveShow">Save to library</button>
-          <button class="btn sm" id="exportShow">Export .json</button>
-          <button class="btn sm" id="importShowBtn">Import .json</button>
-        </div>
-        <input type="file" id="importShow" accept="application/json,.json" hidden />
-        <div class="divider"></div>
+        <h2>This show</h2>
         <button class="btn sm blue wide" id="renderClick">⬇︎ Render click track (.wav)</button>
         <div class="hint">The .wav is the whole show as one audio file — AirDrop it to the band's phone/laptop and play it through the field PA. No app needed on the field.</div>
         <div class="divider"></div>
-        <div id="showLibrary"></div>
+        <div class="grid2">
+          <button class="btn sm" id="dupShow">Duplicate</button>
+          <button class="btn sm" id="exportShow">Export .json</button>
+        </div>
+        <button class="btn sm bad wide" id="deleteShow" style="margin-top:8px">Delete this show</button>
+        <div class="hint">Every change is saved automatically.</div>
       </div>
+      </div><!-- /showEditView -->
     </section>
 
     <!-- ================= TUNER ================= -->
@@ -650,7 +682,17 @@ function toast(msg, isErr=false){
 window.addEventListener('error', e => toast('Error: ' + (e.message||'unknown'), true));
 window.addEventListener('unhandledrejection', e => toast('Error: ' + (e.reason && e.reason.message || e.reason || 'promise'), true));
 
-/* ---------- persistence ---------- */
+/* ---------- persistence ----------
+   Only the shows are kept between launches. Everything else (tempo, meter, sounds,
+   tuner calibration, tone, toggles) resets to defaults each time the app opens. */
+const PERSIST_KEYS = new Set(['ft_show_lib', 'ft_show_current']);
+try{
+  for(let i = localStorage.length - 1; i >= 0; i--){
+    const k = localStorage.key(i);
+    if(k && k.indexOf('ft_') === 0 && !PERSIST_KEYS.has(k)) localStorage.removeItem(k);
+  }
+}catch(_){}
+
 const store = {
   get(k, d){ try{ const v = localStorage.getItem('ft_'+k); return v==null? d : JSON.parse(v); }catch(_){ return d; } },
   set(k, v){ try{ localStorage.setItem('ft_'+k, JSON.stringify(v)); }catch(_){} },
@@ -1830,6 +1872,7 @@ function startShow(){
   SHOW._next = actx.currentTime + 0.1;
   SHOW.playing = true;
 
+  if(SHOW._view !== 'editor') showView('editor');
   setShowPlayUI(true);
   acquireWake();
   loudKeepAlive(true);
@@ -1942,9 +1985,13 @@ function showTick(){
   SHOW._timer = setTimeout(showTick, LOOKAHEAD_MS);
 }
 
-/* ---- show files ---- */
+/* ---- show library ----
+   Every show is an entry in the library. Editing autosaves in place; there is no
+   separate "save" step. `show_current` just remembers which show was last open. */
+function newId(){ return 'show_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+
 function applyShowRecord(rec){
-  SHOW.id = rec.id || ('show_' + Date.now());
+  SHOW.id = rec.id || newId();
   SHOW.name = rec.name || 'Untitled show';
   SHOW.segments = (rec.segments || []).map(normalizeSegment);
   if(!SHOW.segments.length) SHOW.segments = [ newSegment(null) ];
@@ -1955,66 +2002,128 @@ function applyShowRecord(rec){
   SHOW.pitch = clamp(+rec.pitch || 0, -12, 12);
   SHOW.swingPct = clamp(+rec.swingPct || 62, 50, 75);
 }
-function blankShow(){
-  applyShowRecord({ id:'show_'+Date.now(), name:'Untitled show', segments:[ newSegment(null) ] });
-  saveShowState();
-  renderSegList(); renderShowMeta(); syncShowControls();
-}
 function showRecord(){
   return {
     id:SHOW.id, name:SHOW.name, segments:SHOW.segments,
     countIn:SHOW.countIn, volume:SHOW.volume,
     soundMain:SHOW.soundMain, soundSub:SHOW.soundSub, pitch:SHOW.pitch, swingPct:SHOW.swingPct,
+    savedAt: Date.now(),
   };
 }
+function freshRecord(name){
+  return { id:newId(), name:name||'Untitled show', segments:[ newSegment(null) ],
+    countIn:normalizeCountIn(null), volume:0.85, soundMain:'wood', soundSub:'click', pitch:0, swingPct:62 };
+}
+function libGet(){ const a = store.get('show_lib', []); return Array.isArray(a) ? a : []; }
+function libSet(a){ store.set('show_lib', a); }
+function libUpsert(){
+  const lib = libGet();
+  const rec = showRecord();
+  const i = lib.findIndex(x => x && x.id === SHOW.id);
+  if(i >= 0) lib[i] = rec; else lib.unshift(rec);
+  libSet(lib);
+}
+
 function saveShowState(){
   store.set('show_current', showRecord());
+  libUpsert();
   renderShowMeta();
+  if(SHOW._view === 'library') renderLibrary();
 }
+
 function loadShowState(){
-  const s = store.get('show_current', null);
-  if(s && Array.isArray(s.segments) && s.segments.length){
-    applyShowRecord(s);
+  const cur = store.get('show_current', null);
+  if(cur && Array.isArray(cur.segments) && cur.segments.length){
+    applyShowRecord(cur);
+    libUpsert();                     // make sure it shows up in the library list
   }else{
-    blankShow();
+    const lib = libGet();
+    if(lib.length){ applyShowRecord(JSON.parse(JSON.stringify(lib[0]))); }
+    else { applyShowRecord(freshRecord()); }   // in memory only until first edit / New
   }
 }
-function showLibrary(){ return store.get('show_lib', []); }
-function saveToLibrary(){
-  const lib = showLibrary();
-  const rec = Object.assign(showRecord(), { savedAt:Date.now() });
-  const i = lib.findIndex(x=>x.id===SHOW.id);
-  if(i>=0) lib[i] = rec; else lib.push(rec);
-  store.set('show_lib', lib);
-  renderLibrary();
-  toast('Saved "'+SHOW.name+'"');
+
+function showView(v){
+  SHOW._view = v;
+  const lib = $('#showLibView'), ed = $('#showEditView');
+  if(!lib || !ed) return;
+  lib.hidden = v !== 'library';
+  ed.hidden  = v !== 'editor';
+  if(v === 'library') renderLibrary();
+  window.scrollTo(0, 0);
 }
+
+function openShow(id){
+  const rec = libGet().find(x => x && x.id === id);
+  if(!rec) return;
+  if(SHOW.playing) stopShow();
+  applyShowRecord(JSON.parse(JSON.stringify(rec)));
+  store.set('show_current', showRecord());
+  renderSegList(); renderShowMeta(); syncShowControls();
+  $('#showStatus').textContent = SHOW.segments.length ? 'Ready — press play.' : 'Add a segment, then press play.';
+  showView('editor');
+}
+function createShow(){
+  const rec = freshRecord();
+  const lib = libGet(); lib.unshift(rec); libSet(lib);
+  openShow(rec.id);
+  toast('New show');
+}
+function duplicateShow(){
+  const copy = Object.assign(showRecord(), { id:newId(), name: SHOW.name + ' copy' });
+  const lib = libGet(); lib.unshift(copy); libSet(lib);
+  openShow(copy.id);
+  toast('Duplicated');
+}
+function deleteShow(id){
+  const target = id || SHOW.id;
+  const rec = libGet().find(x => x && x.id === target);
+  if(!confirm('Delete "' + (rec ? rec.name : 'this show') + '"? This cannot be undone.')) return;
+  libSet(libGet().filter(x => x && x.id !== target));
+  if(target === SHOW.id){
+    if(SHOW.playing) stopShow();
+    const lib = libGet();
+    if(lib.length){ applyShowRecord(JSON.parse(JSON.stringify(lib[0]))); store.set('show_current', showRecord()); }
+    else { applyShowRecord(freshRecord()); try{ localStorage.removeItem('ft_show_current'); }catch(_){} }
+    renderSegList(); renderShowMeta(); syncShowControls();
+  }
+  showView('library');
+  toast('Deleted');
+}
+
 function renderLibrary(){
-  const lib = showLibrary().sort((a,b)=>b.savedAt-a.savedAt);
-  const wrap = $('#showLibrary');
-  if(!lib.length){ wrap.innerHTML = '<div class="muted">No saved shows yet.</div>'; return; }
+  const wrap = $('#showLibraryList');
+  if(!wrap) return;
+  const lib = libGet().slice().sort((a,b)=>(b.savedAt||0)-(a.savedAt||0));
+  $('#libCount') && ($('#libCount').textContent = lib.length ? lib.length + (lib.length===1?' show':' shows') : '');
+  if(!lib.length){
+    wrap.innerHTML = '<div class="lib-empty">No shows yet.<br>Tap <b>+ New show</b> below to build one.</div>';
+    return;
+  }
   wrap.innerHTML = '';
   lib.forEach(rec=>{
     const meas = rec.segments.reduce((a,s)=>a+(s.measures|0),0);
+    let dur = 0;
+    try{ dur = rec.segments.reduce((a,s)=>{
+      const bpb = segBeatsPerMeasure(s), b0 = s.bpm, b1 = s.bpmEnd || s.bpm, tb = bpb*s.measures;
+      for(let i=0;i<tb;i++){ const f = tb<=1?0:i/(tb-1); a += 60 / (b0 + (b1-b0)*f); }
+      return a;
+    }, 0); }catch(_){}
     const el = document.createElement('div');
-    el.className = 'list-item';
+    el.className = 'showrow' + (SHOW.playing && rec.id === SHOW.id ? ' playing' : '');
     el.innerHTML = `
-      <div class="li-main"><b>${escapeHtml(rec.name)}</b><span>${rec.segments.length} segments · ${meas} measures</span></div>
-      <button class="btn sm" data-a="load">Open</button>
-      <button class="btn sm bad" data-a="del">✕</button>`;
-    el.querySelector('[data-a="load"]').addEventListener('click', ()=>{
-      applyShowRecord(JSON.parse(JSON.stringify(rec)));
-      saveShowState(); renderSegList(); renderShowMeta(); syncShowControls();
-      toast('Opened "'+rec.name+'"');
-      window.scrollTo({top:0,behavior:'smooth'});
-    });
-    el.querySelector('[data-a="del"]').addEventListener('click', ()=>{
-      const lib2 = showLibrary().filter(x=>x.id!==rec.id);
-      store.set('show_lib', lib2); renderLibrary();
-    });
+      <div class="sr-body">
+        <div class="sr-name">${escapeHtml(rec.name)}</div>
+        <div class="sr-sub">${rec.segments.length} segment${rec.segments.length===1?'':'s'} · ${meas} measures · ${fmtDur(dur)}${rec.id===SHOW.id?' · open':''}</div>
+      </div>
+      <button class="sr-del" data-a="del" aria-label="Delete show">✕</button>
+      <span class="sr-go">›</span>`;
+    el.addEventListener('click', e=>{ if(e.target.closest('[data-a="del"]')) return; openShow(rec.id); });
+    el.querySelector('[data-a="del"]').addEventListener('click', ()=> deleteShow(rec.id));
     wrap.appendChild(el);
   });
 }
+
 function exportShowFile(){
   const data = JSON.stringify(Object.assign({ app:'FieldTone', v:2 }, showRecord()), null, 2);
   const blob = new Blob([data], {type:'application/json'});
@@ -2030,13 +2139,14 @@ function importShowFile(file){
     try{
       const obj = JSON.parse(r.result);
       if(!obj || !Array.isArray(obj.segments)) throw new Error('Not a FieldTone show file');
-      applyShowRecord(Object.assign({}, obj, {
-        id: 'show_' + Date.now(),
+      const rec = Object.assign(freshRecord(), obj, {
+        id: newId(),
         name: obj.name || file.name.replace(/\.(fieldtone\.)?json$/,''),
-      }));
-      saveShowState(); renderSegList(); renderShowMeta(); syncShowControls();
-      toast('Imported "'+SHOW.name+'"');
-    }catch(err){ toast('Import failed: '+err.message, true); }
+      });
+      const lib = libGet(); lib.unshift(rec); libSet(lib);
+      openShow(rec.id);
+      toast('Imported "' + SHOW.name + '"');
+    }catch(err){ toast('Import failed: ' + err.message, true); }
   };
   r.readAsText(file);
 }
@@ -2147,8 +2257,13 @@ function wireShow(){
     '<option value="custom" hidden>(custom)</option>';
 
   loadShowState();
-  renderSegList(); renderShowMeta(); renderLibrary();
+  renderSegList(); renderShowMeta();
   syncShowControls();
+  showView('library');
+
+  $('#backToLib').addEventListener('click', ()=>{ if(!SHOW.playing) showView('library'); else toast('Stop the show first'); });
+  $('#dupShow').addEventListener('click', duplicateShow);
+  $('#deleteShow').addEventListener('click', ()=> deleteShow());
 
   $('#showPlayBtn').addEventListener('click', toggleShow);
 
@@ -2187,8 +2302,7 @@ function wireShow(){
     const n = prompt('Show name:', SHOW.name);
     if(n!=null){ SHOW.name = n.trim() || 'Untitled show'; saveShowState(); renderShowMeta(); }
   });
-  $('#newShow').addEventListener('click', ()=>{ if(confirm('Start a new blank show? Current unsaved changes stay in the library only if saved.')) blankShow(); });
-  $('#saveShow').addEventListener('click', saveToLibrary);
+  $('#newShow').addEventListener('click', createShow);
   $('#exportShow').addEventListener('click', exportShowFile);
   $('#importShowBtn').addEventListener('click', ()=>$('#importShow').click());
   $('#importShow').addEventListener('change', e=>{ if(e.target.files[0]) importShowFile(e.target.files[0]); e.target.value=''; });
@@ -2811,6 +2925,8 @@ function wireTabs(){
       const tab = btn.dataset.tab;
       $$('nav.tabs button').forEach(b=>b.classList.toggle('active', b===btn));
       $$('.view').forEach(v=>v.classList.toggle('active', v.id === 'view-'+tab));
+      // the Show tab lands on the library (unless a show is mid-playback)
+      if(tab === 'show' && !SHOW.playing && typeof showView === 'function') showView('library');
       window.scrollTo(0,0);
     });
   });
