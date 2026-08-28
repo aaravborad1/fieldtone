@@ -1,5 +1,5 @@
 /* FieldTone service worker — offline cache (network-first for pages) */
-const CACHE = 'fieldtone-v10';
+const CACHE = 'fieldtone-v11';
 const ASSETS = [
   './',
   './index.html',
