@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0b0f14" />
+<title>FieldTone — Guide</title>
+<style>
+  :root{
+    --bg:#0b0f14; --bg2:#121822; --panel:#161e2b; --panel2:#1d2735;
+    --line:#2a3648; --text:#e9eef6; --dim:#93a1b5; --dimmer:#5f6d80;
+    --accent:#39d98a; --accent-blue:#4aa3ff; --warn:#ffb454; --bad:#ff5c6c;
+    --safe-t:env(safe-area-inset-top); --safe-b:env(safe-area-inset-bottom);
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    padding:calc(var(--safe-t) + 0px) 0 calc(var(--safe-b) + 64px);
+  }
+  .wrap{max-width:720px;margin:0 auto;padding:0 20px}
+  a{color:var(--accent)}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+
+  header.hero{
+    border-bottom:1px solid var(--line);
+    background:radial-gradient(120% 140% at 15% 0%, rgba(57,217,138,.14), transparent 60%);
+    padding:40px 0 30px;
+  }
+  .brand{display:flex;align-items:center;gap:14px}
+  .brand svg{width:44px;height:44px;flex:none}
+  .brand h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.4px}
+  .brand p{margin:2px 0 0;color:var(--dim);font-size:14px;font-weight:600}
+  .hero .lead{margin:22px 0 24px;font-size:19px;line-height:1.5;color:#cdd7e6;text-wrap:balance}
+  .hero .lead b{color:var(--text)}
+  .cta-row{display:flex;flex-wrap:wrap;gap:12px}
+  .btn{
+    display:inline-flex;align-items:center;gap:8px;text-decoration:none;
+    padding:13px 20px;border-radius:12px;font-weight:700;font-size:15px;border:1px solid var(--line);
+    color:var(--text);background:var(--panel2);
+  }
+  .btn.primary{background:var(--accent);color:#03130b;border-color:transparent}
+  .btn:active{transform:translateY(1px)}
+
+  section{padding:34px 0;border-bottom:1px solid var(--line)}
+  section:last-of-type{border-bottom:0}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.11em;color:var(--accent);font-weight:800;margin:0 0 6px}
+  h2 + .h2sub{margin:0 0 18px;font-size:22px;font-weight:800;letter-spacing:-.3px}
+  h3{font-size:16px;font-weight:750;margin:22px 0 6px}
+  p{margin:0 0 12px}
+  .muted{color:var(--dim)}
+  ul,ol{margin:0 0 12px;padding-left:22px}
+  li{margin:6px 0}
+  li::marker{color:var(--dimmer)}
+
+  .steps{list-style:none;padding:0;margin:0;counter-reset:s}
+  .steps li{
+    counter-increment:s;position:relative;padding:14px 14px 14px 52px;margin:10px 0;
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  }
+  .steps li::before{
+    content:counter(s);position:absolute;left:12px;top:12px;width:28px;height:28px;border-radius:8px;
+    background:var(--accent);color:#03130b;font-weight:800;font-size:14px;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .steps li b{display:block;margin-bottom:2px}
+  .steps li .muted{font-size:14px}
+
+  .callout{
+    background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:10px;padding:14px 16px;margin:16px 0;font-size:15px;
+  }
+  .callout.blue{border-left-color:var(--accent-blue)}
+  .callout.warn{border-left-color:var(--warn)}
+  .callout b{color:var(--text)}
+
+  .feat{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
+  .feat > div{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+  .feat h4{margin:0 0 4px;font-size:15px;font-weight:750}
+  .feat p{margin:0;font-size:14px;color:var(--dim)}
+  @media (max-width:560px){ .feat{grid-template-columns:1fr} }
+
+  code{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:13px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  kbd{background:var(--panel2);border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:1px 7px;font-size:13px;font-family:inherit;font-weight:650}
+
+  footer{padding:30px 0;color:var(--dimmer);font-size:13px;text-align:center}
+
+  .tocbar{
+    position:sticky;top:0;z-index:5;background:rgba(11,15,20,.9);backdrop-filter:blur(10px);
+    -webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line);
+  }
+  .tocbar .wrap{display:flex;gap:16px;overflow-x:auto;padding-top:12px;padding-bottom:12px;scrollbar-width:none}
+  .tocbar .wrap::-webkit-scrollbar{display:none}
+  .tocbar a{color:var(--dim);text-decoration:none;font-size:13px;font-weight:650;white-space:nowrap}
+  .tocbar a:hover{color:var(--text)}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="brand">
+      <svg viewBox="0 0 48 48" aria-hidden="true">
+        <rect x="4" y="4" width="40" height="40" rx="11" fill="#39d98a"/>
+        <path d="M19 12h10l6 24H13z" fill="#03130b"/>
+        <rect x="21.5" y="17" width="5" height="15" rx="2.5" fill="#39d98a"/>
+        <circle cx="30" cy="20" r="3" fill="#03130b"/>
+      </svg>
+      <div>
+        <h1>FieldTone</h1>
+        <p>Metronome · Show tempo maps · Tuner · Drone · Recorder</p>
+      </div>
+    </div>
+
+    <p class="lead">
+      A free stand-in for TonalEnergy, built for marching band. The part that matters most:
+      <b>build a file for the whole show</b> — every tempo, meter change, accel. and rit. in order —
+      and let the click follow it from measure&nbsp;1 to the closer.
+    </p>
+
+    <div class="cta-row">
+      <a class="btn primary" href="./index.html">Open FieldTone →</a>
+      <a class="btn" href="#phone">Put it on your phone</a>
+    </div>
+  </div>
+</header>
+
+<nav class="tocbar">
+  <div class="wrap">
+    <a href="#start">Quick start</a>
+    <a href="#show">Show builder</a>
+    <a href="#phone">On your phone</a>
+    <a href="#bluetooth">Bluetooth / PA</a>
+    <a href="#tuner">Tuner</a>
+    <a href="#trouble">Troubleshooting</a>
+  </div>
+</nav>
+
+<main class="wrap">
+
+  <section id="start">
+    <h2>Get going</h2>
+    <div class="h2sub">Quick start</div>
+    <ol class="steps">
+      <li><b>Open the app</b><span class="muted">Tap <a href="./index.html">Open FieldTone</a>. Five tabs across the bottom: Metronome, Show, Tuner, Tone, Record.</span></li>
+      <li><b>Tap the big play button once</b><span class="muted">The first tap also switches on the sound (phones block audio until you touch the screen).</span></li>
+      <li><b>Set tempo</b><span class="muted">Drag the slider, use −1 / +1 / ±10, or tap <kbd>TAP</kbd> in time four times.</span></li>
+      <li><b>Set the meter</b><span class="muted">Beats + note value. For 6/8 counted in 2, set Beats 6 / value 8 and <b>Count as</b> = dotted ♩.</span></li>
+      <li><b>Shape the click</b><span class="muted">Tap any beat box to cycle it: normal → accent → soft → silent. Pick click sounds under <b>Sounds</b>.</span></li>
+    </ol>
+    <div class="callout">
+      <b>Everything you set is saved</b> on the device automatically — tempo, meter, sounds, shows. Close it and come back; it's how you left it.
+    </div>
+  </section>
+
+  <section id="show">
+    <h2>The main event</h2>
+    <div class="h2sub">Building a show file</div>
+    <p>Open the <b>Show</b> tab. A show is a list of <b>segments</b>, top to bottom. Each segment is a stretch of measures that share one time signature and tempo.</p>
+
+    <ol class="steps">
+      <li><b>Add a segment per tempo/meter change</b><span class="muted">Hit <b>+ Segment</b>. Give it the rehearsal letter (A, B, …) so the status line can announce "next: B".</span></li>
+      <li><b>Fill in the boxes</b><span class="muted">Measures, Beats, / value, Count as, Tempo. Measure numbers (m1–16, m17–24 …) are worked out for you.</span></li>
+      <li><b>For an accel. or rit., set "Ramp to"</b><span class="muted">Leave it blank for a steady tempo. Put the ending BPM in and the click glides from Tempo to that value across the segment.</span></li>
+      <li><b>Name and save</b><span class="muted"><b>Rename</b> the show, then <b>Save to library</b> — it stays on the device. <b>Export .json</b> to hand the file to another director; they use <b>Import .json</b>.</span></li>
+      <li><b>Play it</b><span class="muted">Press play. You get a count-in, a running measure number, the current segment lit up, and "next: letter @ tempo". Set <b>Start from measure</b> to drop in anywhere.</span></li>
+    </ol>
+
+    <div class="callout blue">
+      <b>Render click track (.wav)</b> turns the entire show — count-in included — into one audio file.
+      AirDrop it to any phone or laptop and play it straight through the field PA. Nothing needs FieldTone installed on the field.
+    </div>
+
+    <h3>Worked example</h3>
+    <p class="muted">Opener A: 16 bars of 4/4 at 144. Build B: 8 bars of 4/4, Tempo 144, Ramp to 168. Ballad C: 12 bars of 3/4 at 72, Ramp to 60. Closer D: 16 bars of 4/4 at 160, Ramp to 184. Four segments, 52 measures, and the click handles every transition.</p>
+  </section>
+
+  <section id="phone">
+    <h2>Install</h2>
+    <div class="h2sub">Putting it on an iPhone</div>
+    <p>It runs in Safari and installs to the Home Screen like a real app — full screen, works with no signal.</p>
+    <ol class="steps">
+      <li><b>Open the FieldTone link in Safari</b><span class="muted">(This same address. Chrome on iOS works too but Add to Home Screen is a Safari feature.)</span></li>
+      <li><b>Tap the Share button</b><span class="muted">The square with an up-arrow, in the toolbar.</span></li>
+      <li><b>Choose "Add to Home Screen"</b><span class="muted">Confirm. A FieldTone icon lands on your Home Screen.</span></li>
+      <li><b>Launch it from that icon</b><span class="muted">Now it opens full-screen and offline. Rehearsal needs no wifi.</span></li>
+    </ol>
+    <div class="callout warn">
+      The <b>tuner and recorder need the microphone</b>, which browsers only allow over a secure (https) address. Opening this hosted link is fine. Opening the raw file off a thumb drive is not.
+    </div>
+  </section>
+
+  <section id="bluetooth">
+    <h2>Output</h2>
+    <div class="h2sub">Bluetooth speakers &amp; the field PA</div>
+    <p>There's nothing to pair inside FieldTone. The click always plays through whatever output your phone is already using.</p>
+    <ul>
+      <li><b>Bluetooth PA or speaker:</b> pair it once in <b>iOS Settings → Bluetooth</b>. FieldTone's sound follows it automatically.</li>
+      <li><b>Wired into the sound board:</b> run a cable from the headphone/USB-C adapter into a board channel. Same deal — the click goes where the phone's audio goes.</li>
+      <li><b>Laptop:</b> if your browser supports it, the app shows an <b>Output device</b> picker under "Audio output &amp; Bluetooth" so you can send the click to a specific interface.</li>
+    </ul>
+    <div class="callout">
+      To <b>tune off the field mics</b>, connect the mic / audio interface to the phone, open the Tuner tab, and choose it under <b>Input source</b>.
+    </div>
+  </section>
+
+  <section id="tuner">
+    <h2>The rest</h2>
+    <div class="h2sub">Tuner, drone, recorder</div>
+    <div class="feat">
+      <div>
+        <h4>Tuner</h4>
+        <p>Play a note. The face grins green when you're within 5 cents, goes amber then red as you drift. Set <b>A4</b> and pick your <b>Transpose</b> (B♭ trumpet/clarinet, E♭ alto, F horn…). Needle or strobe, with a cents-history graph.</p>
+      </div>
+      <div>
+        <h4>Tone / drone</h4>
+        <p>A steady reference pitch to tune the ensemble against. Choose the note, octave and timbre. Runs at the same time as the metronome and tuner.</p>
+      </div>
+      <div>
+        <h4>Recorder</h4>
+        <p>Record a run, see the waveform, play it back, download it. Toggle "play click while recording" to keep time on the take.</p>
+      </div>
+      <div>
+        <h4>Tempo trainer</h4>
+        <p>On the Metronome tab: auto-bump the tempo by a set amount every few bars up to a ceiling, or randomly mute bars to test whether the section is holding time.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="trouble">
+    <h2>Fixes</h2>
+    <div class="h2sub">Troubleshooting</div>
+    <h3>No sound</h3>
+    <p class="muted">Tap the play button once first — phones keep audio silent until you touch the screen. Check the ring/silent switch and the volume slider in the app.</p>
+    <h3>Tuner won't start / "mic access needed"</h3>
+    <p class="muted">You must be on the hosted https link, not a local file. When Safari asks for microphone permission, allow it. If you tapped no once, fix it in <b>iOS Settings → Safari → Microphone</b> (or Settings → the FieldTone app).</p>
+    <h3>Screen keeps sleeping mid-rehearsal</h3>
+    <p class="muted">"Keep screen awake while playing" is on by default. If iOS still dims it, raise <b>Settings → Display &amp; Brightness → Auto-Lock</b>.</p>
+    <h3>Show didn't update</h3>
+    <p class="muted">Segments save as you edit. To move one, use ↑ / ↓ on that segment card. <b>New</b> starts a blank show — save the current one to the library first if you want to keep it.</p>
+    <h3>An update didn't show up</h3>
+    <p class="muted">The app caches itself to work offline. Fully close it and reopen while on wifi to pull the latest.</p>
+  </section>
+
+</main>
+
+<footer class="wrap">
+  FieldTone · free · works offline · your shows never leave the device ·
+  <a href="./index.html">open the app</a>
+</footer>
+
+</body>
+</html>
