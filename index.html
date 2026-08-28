@@ -111,6 +111,8 @@
   .bpm{font-size:72px;font-weight:800;letter-spacing:-2px;font-variant-numeric:tabular-nums;line-height:1}
   .bpm small{font-size:16px;font-weight:700;color:var(--dim);letter-spacing:0}
   .tempo-name{color:var(--dim);font-size:13px;min-height:16px;font-weight:600}
+  .beat-eq{color:var(--accent);font-size:15px;font-weight:750;min-height:20px;font-variant-numeric:tabular-nums;letter-spacing:.01em}
+  .beat-eq .q{color:var(--dim);font-weight:600}
   .stepper{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:8px}
   .stepper .btn{min-width:52px;min-height:46px;padding:0 10px}
   input[type=range]{width:100%;height:38px;-webkit-appearance:none;background:transparent}
@@ -226,6 +228,14 @@
   .lib-empty{text-align:center;color:var(--dim);padding:34px 16px;border:1px dashed var(--line);border-radius:14px}
   .libbar{display:flex;gap:10px;margin-top:16px}
   .libbar .btn{min-height:54px}
+  .play-title{font-size:22px;font-weight:800;letter-spacing:-.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ov-row{display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--line);font-size:13px}
+  .ov-row:last-child{border-bottom:0}
+  .ov-row.cur{background:rgba(57,217,138,.08);border-radius:8px;padding-left:8px;padding-right:8px}
+  .ov-m{color:var(--dimmer);font-size:11px;font-weight:700;min-width:62px;font-variant-numeric:tabular-nums}
+  .ov-name{flex:1;min-width:0;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ov-tempo{color:var(--dim);font-variant-numeric:tabular-nums;font-weight:650}
+  .ov-sig{color:var(--dimmer);font-size:11.5px;min-width:34px;text-align:right}
 
   .kbd{font-size:11px;color:var(--dimmer)}
   .accent-editor{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:8px}
@@ -267,6 +277,7 @@
       <div class="card">
         <div class="bpm-wrap">
           <div class="bpm"><span id="bpmVal">120</span> <small>BPM</small></div>
+          <div class="beat-eq" id="beatEq">♩ = 120</div>
           <div class="tempo-name" id="tempoName">Allegro</div>
         </div>
         <input type="range" id="bpmSlider" min="10" max="400" step="1" value="120" aria-label="Tempo" />
@@ -421,87 +432,113 @@
         </div>
       </div>
 
-      <!-- EDITOR -->
-      <div id="showEditView" hidden>
-      <div class="row" style="gap:8px;margin-bottom:10px">
-        <button class="btn sm" id="backToLib">‹ All shows</button>
-        <span class="grow"></span>
-        <button class="btn sm" id="renameShow">Rename</button>
-      </div>
-      <div class="card">
-        <div style="font-weight:800;font-size:18px" id="showName">Untitled show</div>
-        <div class="muted" id="showMeta">0 segments · 0 measures</div>
-        <div class="big-measure" style="margin-top:10px">
-          <span id="showMeasure">—</span>
-          <small id="showMeasureSub">measure</small>
+      <!-- PLAYER -->
+      <div id="showPlayView" hidden>
+        <div class="row" style="gap:8px;margin-bottom:12px">
+          <button class="btn sm" id="backToLib">‹ Shows</button>
+          <span class="grow"></span>
+          <button class="btn sm" id="openBuilder">Edit show</button>
         </div>
-        <div class="show-status" id="showStatus">Build segments below, then press play.</div>
-        <div class="transport" style="margin-top:6px">
-          <button class="play" id="showPlayBtn" aria-label="Start/stop show">
-            <svg id="showPlayIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-          </button>
-          <div class="grow">
-            <label class="fld">Start from measure
-              <input type="number" id="showStartMeas" min="1" value="1" />
+
+        <div class="card">
+          <div class="row spread" style="align-items:flex-start">
+            <div style="min-width:0">
+              <div class="play-title" id="showName">Untitled show</div>
+              <div class="muted" id="showMeta">0 segments · 0 measures</div>
+            </div>
+            <button class="btn sm ghost" id="renameShow">Rename</button>
+          </div>
+          <div class="big-measure" style="margin-top:12px">
+            <span id="showMeasure">—</span>
+            <small id="showMeasureSub">measure</small>
+          </div>
+          <div class="show-status" id="showStatus">Press play.</div>
+          <div class="transport" style="margin-top:8px">
+            <button class="play" id="showPlayBtn" aria-label="Start/stop show">
+              <svg id="showPlayIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+            <div class="grow">
+              <label class="fld">Start from measure
+                <input type="number" id="showStartMeas" min="1" value="1" />
+              </label>
+            </div>
+          </div>
+          <label class="fld" style="margin-top:12px">Volume
+            <input type="range" id="showVol" min="0" max="100" value="85" />
+          </label>
+        </div>
+
+        <div class="card">
+          <h2>Road map</h2>
+          <div id="segOverview"></div>
+        </div>
+
+        <div class="card">
+          <button class="btn sm blue wide" id="renderClick">⬇︎ Render click track (.wav)</button>
+          <div class="hint">The whole show as one audio file — AirDrop it and play it through the field PA. No app needed on the field.</div>
+        </div>
+      </div>
+
+      <!-- BUILDER -->
+      <div id="showBuildView" hidden>
+        <div class="row" style="gap:8px;margin-bottom:12px">
+          <button class="btn sm" id="backToPlayer">‹ Done</button>
+          <span class="grow"></span>
+          <span class="muted" id="buildName" style="font-weight:700;font-size:13px"></span>
+        </div>
+
+        <div class="card">
+          <div class="row spread">
+            <h2 style="margin:0">Segments</h2>
+            <button class="btn sm primary" id="addSeg">+ Segment</button>
+          </div>
+          <div id="segList"></div>
+          <div class="hint">Each segment = a run of measures at one time signature. Set a <b>Ramp to</b> value for an accel. or rit. Measure numbers are worked out for you.</div>
+        </div>
+
+        <div class="card">
+          <h2>Count-off</h2>
+          <div class="grid3">
+            <label class="fld">Bars
+              <select id="ciBars">
+                <option value="0">Off</option><option value="1" selected>1 bar</option>
+                <option value="2">2 bars</option><option value="3">3 bars</option><option value="4">4 bars</option>
+              </select>
+            </label>
+            <label class="fld">Prep meter
+              <select id="ciMeter"></select>
+            </label>
+            <label class="fld">Prep tempo
+              <input type="number" id="ciBpm" min="10" max="400" placeholder="match" />
             </label>
           </div>
+          <div class="hint">The prep can be a different time signature than the show — e.g. count off in <b>4/4</b> for a show that opens in <b>3/4</b>. Leave prep tempo blank to match the opening tempo.</div>
         </div>
-        <div class="grid3" style="margin-top:10px">
-          <label class="fld">Count-in
-            <select id="ciBars">
-              <option value="0">Off</option><option value="1" selected>1 bar</option>
-              <option value="2">2 bars</option><option value="3">3 bars</option><option value="4">4 bars</option>
-            </select>
-          </label>
-          <label class="fld">Prep meter
-            <select id="ciMeter"></select>
-          </label>
-          <label class="fld">Prep tempo
-            <input type="number" id="ciBpm" min="10" max="400" placeholder="match" />
-          </label>
-        </div>
-        <label class="fld" style="margin-top:10px">Volume
-          <input type="range" id="showVol" min="0" max="100" value="85" />
-        </label>
-        <div class="hint">The prep can be a different time signature than the show — e.g. count off in <b>4/4</b> for a show that opens in <b>3/4</b>. Leave prep tempo blank to match the opening tempo.</div>
-      </div>
 
-      <div class="card">
-        <h2>Sound</h2>
-        <div class="grid2">
-          <label class="fld">Click <select id="showSoundMain"></select></label>
-          <label class="fld">Subdivision <select id="showSoundSub"></select></label>
+        <div class="card">
+          <h2>Sound</h2>
+          <div class="grid2">
+            <label class="fld">Click <select id="showSoundMain"></select></label>
+            <label class="fld">Subdivision <select id="showSoundSub"></select></label>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button class="btn sm" id="showPreviewSound">Preview</button>
+            <label class="fld grow">Pitch <input type="range" id="showPitch" min="-12" max="12" value="0" /></label>
+            <label class="fld" style="width:92px">Swing % <input type="number" id="showSwing" min="50" max="75" value="62" /></label>
+          </div>
+          <div class="hint">One click sound for the whole show. Swing % applies to any segment set to a Swing subdivision.</div>
         </div>
-        <div class="row" style="margin-top:10px">
-          <button class="btn sm" id="showPreviewSound">Preview</button>
-          <label class="fld grow">Pitch <input type="range" id="showPitch" min="-12" max="12" value="0" /></label>
-          <label class="fld" style="width:92px">Swing % <input type="number" id="showSwing" min="50" max="75" value="62" /></label>
-        </div>
-        <div class="hint">One click sound for the whole show. Swing % applies to any segment set to a Swing subdivision.</div>
-      </div>
 
-      <div class="card">
-        <div class="row spread">
-          <h2 style="margin:0">Segments</h2>
-          <button class="btn sm primary" id="addSeg">+ Segment</button>
+        <div class="card">
+          <h2>This show</h2>
+          <div class="grid2">
+            <button class="btn sm" id="dupShow">Duplicate</button>
+            <button class="btn sm" id="exportShow">Export .json</button>
+          </div>
+          <button class="btn sm bad wide" id="deleteShow" style="margin-top:8px">Delete this show</button>
+          <div class="hint">Every change is saved automatically.</div>
         </div>
-        <div id="segList"></div>
-        <div class="hint">Each segment = a run of measures at one time signature. Set a <b>Tempo ramp</b> end value for an accel. or rit. Measure numbers are computed automatically.</div>
       </div>
-
-      <div class="card">
-        <h2>This show</h2>
-        <button class="btn sm blue wide" id="renderClick">⬇︎ Render click track (.wav)</button>
-        <div class="hint">The .wav is the whole show as one audio file — AirDrop it to the band's phone/laptop and play it through the field PA. No app needed on the field.</div>
-        <div class="divider"></div>
-        <div class="grid2">
-          <button class="btn sm" id="dupShow">Duplicate</button>
-          <button class="btn sm" id="exportShow">Export .json</button>
-        </div>
-        <button class="btn sm bad wide" id="deleteShow" style="margin-top:8px">Delete this show</button>
-        <div class="hint">Every change is saved automatically.</div>
-      </div>
-      </div><!-- /showEditView -->
     </section>
 
     <!-- ================= TUNER ================= -->
@@ -685,13 +722,18 @@ window.addEventListener('unhandledrejection', e => toast('Error: ' + (e.reason &
 /* ---------- persistence ----------
    Only the shows are kept between launches. Everything else (tempo, meter, sounds,
    tuner calibration, tone, toggles) resets to defaults each time the app opens. */
+const BUILD = 'v13';
 const PERSIST_KEYS = new Set(['ft_show_lib', 'ft_show_current']);
-try{
-  for(let i = localStorage.length - 1; i >= 0; i--){
-    const k = localStorage.key(i);
-    if(k && k.indexOf('ft_') === 0 && !PERSIST_KEYS.has(k)) localStorage.removeItem(k);
-  }
-}catch(_){}
+
+function wipeTransientStorage(){
+  try{
+    for(let i = localStorage.length - 1; i >= 0; i--){
+      const k = localStorage.key(i);
+      if(k && k.indexOf('ft_') === 0 && !PERSIST_KEYS.has(k)) localStorage.removeItem(k);
+    }
+  }catch(_){}
+}
+wipeTransientStorage();   // fresh page load
 
 const store = {
   get(k, d){ try{ const v = localStorage.getItem('ft_'+k); return v==null? d : JSON.parse(v); }catch(_){ return d; } },
@@ -1327,10 +1369,23 @@ const TEMPO_TERMS = [
 ];
 function tempoTerm(b){ for(const [hi,name] of TEMPO_TERMS){ if(b<=hi) return name; } return ''; }
 
+// Glyph for the unit that gets the beat, and the quarter-note equivalent tempo.
+// ♩ ♪ and ♩. are in common fonts; the whole/half glyphs are not, so use words.
+const BEAT_GLYPH = { '1':'whole', '2':'half', '4':'♩', '8':'♪', '3d':'♩.' };
+function beatEqText(bpm, unit){
+  const glyph = BEAT_GLYPH[unit] || '♩';
+  const quarters = beatUnitInQuarters(unit);          // how many quarters the beat lasts
+  const qBpm = Math.round(bpm * quarters);
+  let s = `${glyph} = ${bpm}`;
+  if(unit !== '4') s += `  <span class="q">(♩ = ${qBpm})</span>`;
+  return s;
+}
 function renderBpm(){
   $('#bpmVal').textContent = M.bpm;
   $('#bpmSlider').value = M.bpm;
   $('#tempoName').textContent = tempoTerm(M.bpm);
+  const eq = $('#beatEq');
+  if(eq) eq.innerHTML = beatEqText(M.bpm, M.beatUnit);
 }
 function setBpm(v){ M.bpm = clamp(Math.round(v),10,400); renderBpm(); saveMetro(); }
 
@@ -1394,6 +1449,7 @@ function syncMeterControls(){
   if(sel){ if(![...sel.options].some(o=>+o.value===M.tsNum)){ buildTsNum(); } sel.value = M.tsNum; }
   if($('#tsDen')) $('#tsDen').value = M.tsDen;
   if($('#beatUnit')) $('#beatUnit').value = M.beatUnit;
+  renderBpm();
 }
 
 function renderMeterPresets(){
@@ -1417,6 +1473,7 @@ function applyMeterPreset(p){
   syncMeterControls();
   renderBeatLights();
   renderMeterPresets();
+  renderBpm();
   saveMetro();
 }
 
@@ -1547,7 +1604,7 @@ function wireMetro(){
 
   const onTs = ()=>{
     M.tsNum = +$('#tsNum').value; M.tsDen = +$('#tsDen').value; M.beatUnit = $('#beatUnit').value;
-    fixAccentsLength(); renderBeatLights(); renderMeterPresets(); saveMetro();
+    fixAccentsLength(); renderBeatLights(); renderMeterPresets(); renderBpm(); saveMetro();
   };
   ['#tsNum','#tsDen','#beatUnit'].forEach(s => $(s).addEventListener('change', onTs));
 
@@ -1872,11 +1929,11 @@ function startShow(){
   SHOW._next = actx.currentTime + 0.1;
   SHOW.playing = true;
 
-  if(SHOW._view !== 'editor') showView('editor');
+  if(SHOW._view !== 'player') showView('player');
   setShowPlayUI(true);
   acquireWake();
   loudKeepAlive(true);
-  renderSegList();
+  renderSegOverview();
   showTick();
 }
 function stopShow(){
@@ -1885,7 +1942,8 @@ function stopShow(){
   setShowPlayUI(false);
   loudKeepAlive(false);
   $('#showStatus').textContent = 'Stopped.';
-  renderSegList();
+  renderSegOverview();
+  renderLibrary();
   renderShowMeta();
   if(!M.playing) releaseWake();
 }
@@ -1971,8 +2029,7 @@ function showTick(){
               setTimeout(()=>{ if(SHOW.playing){ stopShow(); $('#showStatus').textContent = 'Show complete ✓'; toast('Show complete'); } }, endDelay);
               return;
             }
-            const s2 = SHOW.segments[SHOW._segIdx];
-            setTimeout(()=>renderSegList(), Math.max(0,(SHOW._next-ctx.currentTime)*1000));
+            setTimeout(()=>renderSegOverview(), Math.max(0,(SHOW._next-ctx.currentTime)*1000));
           }
         }
       }
@@ -2029,6 +2086,7 @@ function saveShowState(){
   libUpsert();
   renderShowMeta();
   if(SHOW._view === 'library') renderLibrary();
+  if(SHOW._view === 'builder'){ const bn = $('#buildName'); if(bn) bn.textContent = SHOW.name; }
 }
 
 function loadShowState(){
@@ -2043,14 +2101,42 @@ function loadShowState(){
   }
 }
 
+/* Three screens: library (pick a show) -> player (run it) -> builder (edit it). */
 function showView(v){
   SHOW._view = v;
-  const lib = $('#showLibView'), ed = $('#showEditView');
-  if(!lib || !ed) return;
+  const lib = $('#showLibView'), pl = $('#showPlayView'), bd = $('#showBuildView');
+  if(!lib || !pl || !bd) return;
   lib.hidden = v !== 'library';
-  ed.hidden  = v !== 'editor';
+  pl.hidden  = v !== 'player';
+  bd.hidden  = v !== 'builder';
   if(v === 'library') renderLibrary();
+  if(v === 'player')  renderSegOverview();
+  if(v === 'builder'){ renderSegList(); const bn = $('#buildName'); if(bn) bn.textContent = SHOW.name; }
   window.scrollTo(0, 0);
+}
+
+/* Read-only road map on the player screen. */
+function renderSegOverview(){
+  const wrap = $('#segOverview');
+  if(!wrap) return;
+  if(!SHOW.segments.length){
+    wrap.innerHTML = '<div class="muted">No segments yet — tap <b>Edit show</b> to build it.</div>';
+    return;
+  }
+  wrap.innerHTML = '';
+  SHOW.segments.forEach((s, i)=>{
+    const start = segStartMeasure(i);
+    const end = start + (s.measures|0) - 1;
+    const tempo = s.bpmEnd && s.bpmEnd !== s.bpm ? `${s.bpm}→${s.bpmEnd}` : `${s.bpm}`;
+    const row = document.createElement('div');
+    row.className = 'ov-row' + (SHOW.playing && i === SHOW._segIdx ? ' cur' : '');
+    row.innerHTML = `
+      <span class="ov-m">m${start}${end>start?'–'+end:''}</span>
+      <span class="ov-name">${escapeHtml(s.name || 'Segment ' + (i+1))}</span>
+      <span class="ov-sig">${s.tsNum}/${s.tsDen}</span>
+      <span class="ov-tempo">${tempo}</span>`;
+    wrap.appendChild(row);
+  });
 }
 
 function openShow(id){
@@ -2061,12 +2147,13 @@ function openShow(id){
   store.set('show_current', showRecord());
   renderSegList(); renderShowMeta(); syncShowControls();
   $('#showStatus').textContent = SHOW.segments.length ? 'Ready — press play.' : 'Add a segment, then press play.';
-  showView('editor');
+  showView('player');
 }
 function createShow(){
   const rec = freshRecord();
   const lib = libGet(); lib.unshift(rec); libSet(lib);
   openShow(rec.id);
+  showView('builder');      // a brand-new show goes straight to building
   toast('New show');
 }
 function duplicateShow(){
@@ -2261,7 +2348,15 @@ function wireShow(){
   syncShowControls();
   showView('library');
 
-  $('#backToLib').addEventListener('click', ()=>{ if(!SHOW.playing) showView('library'); else toast('Stop the show first'); });
+  $('#backToLib').addEventListener('click', ()=>{
+    if(SHOW.playing){ toast('Stop the show first'); return; }
+    showView('library');
+  });
+  $('#openBuilder').addEventListener('click', ()=>{
+    if(SHOW.playing) stopShow();
+    showView('builder');
+  });
+  $('#backToPlayer').addEventListener('click', ()=> showView('player'));
   $('#dupShow').addEventListener('click', duplicateShow);
   $('#deleteShow').addEventListener('click', ()=> deleteShow());
 
@@ -2938,11 +3033,52 @@ function wireTabs(){
 /* ============================================================
    SERVICE WORKER
    ============================================================ */
+/* Register, then actively hunt for updates. When a new service worker takes over
+   we reload once, so an installed app can never get stuck on an old build. */
+let _swReg = null, _reloadingForUpdate = false;
 if('serviceWorker' in navigator){
+  // Only reload when an *existing* controller is replaced — not on first install.
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', ()=>{
+    if(!hadController || _reloadingForUpdate) return;
+    _reloadingForUpdate = true;
+    location.reload();
+  });
   window.addEventListener('load', ()=>{
-    navigator.serviceWorker.register('sw.js').catch(()=>{});
+    navigator.serviceWorker.register('sw.js').then(reg=>{
+      _swReg = reg;
+      reg.update().catch(()=>{});
+      reg.addEventListener('updatefound', ()=>{
+        const nw = reg.installing;
+        if(!nw) return;
+        nw.addEventListener('statechange', ()=>{
+          // a new build finished installing while an old one is in control
+          if(nw.state === 'installed' && navigator.serviceWorker.controller){
+            try{ nw.postMessage('skipWaiting'); }catch(_){}
+          }
+        });
+      });
+    }).catch(()=>{});
   });
 }
+function checkForUpdate(){ try{ _swReg && _swReg.update(); }catch(_){} }
+
+/* ---------- treat a long-backgrounded app as a fresh launch ----------
+   iOS resumes an installed PWA instead of reloading it, so "opening the app"
+   after a while would otherwise keep the previous session's settings and code. */
+const RELAUNCH_AFTER_MS = 10 * 60 * 1000;
+let _hiddenAt = 0;
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'hidden'){ _hiddenAt = Date.now(); return; }
+  checkForUpdate();
+  const away = _hiddenAt ? Date.now() - _hiddenAt : 0;
+  _hiddenAt = 0;
+  const busy = M.playing || SHOW.playing || T.running || (typeof R !== 'undefined' && R.recording);
+  if(away > RELAUNCH_AFTER_MS && !busy){
+    wipeTransientStorage();
+    location.reload();
+  }
+});
 
 /* runtime apple-touch-icon (canvas) so Add-to-Home-Screen has a real PNG */
 function installAppleIcon(){
