@@ -1167,6 +1167,7 @@ document.addEventListener('visibilitychange', ()=>{
 function startMetro(){
   ensureAudio();
   if(M.playing) return;
+  if(SHOW.playing) stopShow();          // one click stream at a time
   M.playing = true;
   M._beat = 0; M._bar = 0; M._trainerBars = 0; M._muteCycle = 0;
   M._seqIdx = 0; M._seqBar = 0;
@@ -1722,6 +1723,7 @@ function startShow(){
   ensureAudio();
   if(SHOW.playing) return;
   if(!SHOW.segments.length){ toast('Add at least one segment first', true); return; }
+  if(M.playing) stopMetro();            // stop the plain metronome so the two clicks don't overlap
 
   const startMeas = clamp(+$('#showStartMeas').value || 1, 1, Math.max(1,showTotalMeasures()));
   // locate segment + measure offset
@@ -2742,13 +2744,12 @@ function wireTabs(){
       const tab = btn.dataset.tab;
       $$('nav.tabs button').forEach(b=>b.classList.toggle('active', b===btn));
       $$('.view').forEach(v=>v.classList.toggle('active', v.id === 'view-'+tab));
-      store.set('tab', tab);
       window.scrollTo(0,0);
     });
   });
-  const saved = store.get('tab','metro');
-  const b = $(`nav.tabs button[data-tab="${saved}"]`);
-  if(b) b.click();
+  // always open on the Metronome home screen
+  const home = $('nav.tabs button[data-tab="metro"]');
+  if(home) home.click();
 }
 
 /* ============================================================
