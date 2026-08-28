@@ -146,7 +146,7 @@
       <li><b>Open the app</b><span class="muted">Tap <a href="./index.html">Open FieldTone</a>. Five tabs across the bottom: Metronome, Show, Tuner, Tone, Record.</span></li>
       <li><b>Tap the big play button once</b><span class="muted">The first tap also switches on the sound (phones block audio until you touch the screen).</span></li>
       <li><b>Set tempo</b><span class="muted">Drag the slider, use −1 / +1 / ±10, or tap <kbd>TAP</kbd> in time four times.</span></li>
-      <li><b>Set the meter</b><span class="muted">Tap a preset chip — <b>4/4</b>, <b>2/2 cut time</b>, <b>3/4</b>, <b>6/8 in 2</b>, <b>7/8</b>, <b>12/8</b>… — or set Beats / value / Count as by hand.</span></li>
+      <li><b>Set the meter</b><span class="muted">Tap a preset chip — <b>4/4</b>, <b>2/2 cut time</b>, <b>3/4</b>, <b>6/8 in 2</b>, <b>7/8</b>, <b>12/8</b>… — or set Beats / value / Count as by hand. The tempo number is the rate of whatever you're counting: cut time at 128 = 128 half-note clicks a minute.</span></li>
       <li><b>Pick a sound</b><span class="muted">20 built-in clicks grouped by type: sticks &amp; clicks, electronic, melodic (bell, marimba, triangle), and percussion (snare, tabla, conga, cowbell…). Different sound for the subdivision if you want.</span></li>
       <li><b>Shape the click</b><span class="muted">Tap any beat box to cycle it: normal → accent → soft → silent. Pick click sounds under <b>Sounds</b>.</span></li>
     </ol>
@@ -199,8 +199,9 @@
     <h2>Output</h2>
     <div class="h2sub">Bluetooth speakers &amp; the field PA</div>
     <p>There's nothing to pair inside FieldTone. The click always plays through whatever output your phone is already using.</p>
+    <p class="muted">The pill in the top-right shows where sound is going. On iPhone it reads <b>Auto</b> — iOS doesn't hand the device's name to web apps, but the click really is going to whatever's connected. On a laptop it shows the device name and lets you pick one.</p>
     <ul>
-      <li><b>Bluetooth PA or speaker:</b> pair it once in <b>iOS Settings → Bluetooth</b>. FieldTone's sound follows it automatically.</li>
+      <li><b>Bluetooth PA, speaker, or AirPods:</b> pair once in <b>iOS Settings → Bluetooth</b>. FieldTone's sound follows it automatically — connect or disconnect and it switches on its own.</li>
       <li><b>Wired into the sound board:</b> run a cable from the headphone/USB-C adapter into a board channel. Same deal — the click goes where the phone's audio goes.</li>
       <li><b>Laptop:</b> if your browser supports it, the app shows an <b>Output device</b> picker under "Audio output &amp; Bluetooth" so you can send the click to a specific interface.</li>
     </ul>
