@@ -119,6 +119,20 @@
   .flash-overlay{position:fixed;inset:0;background:var(--accent);opacity:0;pointer-events:none;z-index:60;transition:opacity .09s}
   body.flash-mode .flash-overlay.hit{opacity:.5}
 
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 10px}
+  .chip{
+    border:1px solid var(--line);background:var(--panel2);color:var(--dim);border-radius:999px;
+    padding:7px 12px;font:inherit;font-size:13px;font-weight:700;min-height:38px;cursor:pointer;
+  }
+  .chip.on{background:var(--accent);color:#03130b;border-color:transparent}
+  .chip .g{font-size:11px;font-weight:600;color:var(--dimmer);margin-left:4px}
+  .chip.on .g{color:#03130bcc}
+  .seq-row{display:flex;align-items:center;gap:6px;margin:6px 0;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
+  .seq-row select,.seq-row input{min-height:40px;padding:6px 8px;font-size:13px}
+  .seq-row .grow{flex:1}
+  .seq-row .x{border:none;background:none;color:var(--bad);font-size:18px;min-width:34px}
+  .seq-cur{outline:2px solid var(--accent);outline-offset:1px}
+
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
   .muted{color:var(--dim);font-size:12px}
@@ -243,6 +257,7 @@
 
       <div class="card">
         <h2>Time &amp; Feel</h2>
+        <div class="chips" id="meterPresets"></div>
         <div class="grid3">
           <label class="fld">Beats
             <select id="tsNum"></select>
@@ -282,6 +297,16 @@
         <div class="accent-editor" id="accentEditor"></div>
         <div class="hint">Tap a beat box to cycle: normal → accent → soft → silent.</div>
       </div>
+
+      <details class="adv" id="seqCard">
+        <summary>Meter sequence — loop changing time signatures</summary>
+        <div class="adv-body">
+          <div class="toggle"><span>Use meter sequence</span><div class="sw" id="swSeq"></div></div>
+          <div class="hint">Build a repeating pattern of measures in different time signatures (e.g. 7/8 · 7/8 · 4/4). It loops for as long as the metronome runs. Leave off for a single fixed meter.</div>
+          <div id="seqList" style="margin-top:8px"></div>
+          <button class="btn sm" id="addSeqRow" style="margin-top:6px">+ Add meter</button>
+        </div>
+      </details>
 
       <div class="card">
         <h2>Sounds</h2>
@@ -425,8 +450,10 @@
         </div>
         <div class="row" style="margin-top:6px">
           <button class="btn primary grow" id="tunerToggle">Start tuner</button>
+          <button class="btn sm" id="tunerDemo">Demo</button>
         </div>
         <div class="lvl" style="margin-top:10px"><i id="tunerLevel"></i></div>
+        <div class="hint">No instrument handy? Tap <b>Demo</b> to sweep the needle and face through sharp → in-tune → flat so you can check it works.</div>
       </div>
 
       <div class="card">
@@ -618,11 +645,13 @@ function noiseBuffer(ctx, dur=0.2){
   for(let i=0;i<n;i++) d[i] = Math.random()*2-1;
   return b;
 }
+const VTRIM = 0.58;   // global voice headroom trim so single hits stay < 1.0
 function env(ctx, dest, t, peak, dur){
   const g = ctx.createGain();
   g.connect(dest);
+  const pk = Math.max(0.0002, peak * VTRIM);
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(Math.max(0.0002,peak), t + 0.002);
+  g.gain.exponentialRampToValueAtTime(pk, t + 0.002);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   return g;
 }
@@ -695,14 +724,132 @@ const VOICES = {
     const bp = ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value = (o.accent?3200:2400)*o.freqMul; bp.Q.value=4;
     nb.connect(bp); bp.connect(g); nb.start(t); nb.stop(t+0.03);
   },
+  tick(ctx,dest,t,o){
+    // mechanical clock tick — noise transient + short pitched knock
+    const dur = 0.02 * o.decayMul;
+    const g = env(ctx,dest,t, 0.6*o.gain, dur);
+    const nb = ctx.createBufferSource(); nb.buffer = noiseBuffer(ctx,0.02);
+    const hp = ctx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=2000;
+    const ng = ctx.createGain(); ng.gain.value = 0.6;
+    nb.connect(hp); hp.connect(ng); ng.connect(g); nb.start(t); nb.stop(t+0.02);
+    const s = ctx.createOscillator(); s.type='square';
+    s.frequency.value=(o.accent?2400:1500)*o.freqMul;
+    const sg = ctx.createGain(); sg.gain.value = 0.5;
+    s.connect(sg); sg.connect(g); s.start(t); s.stop(t+dur+0.01);
+  },
+  bell(ctx,dest,t,o){
+    const base = (o.accent?1320:990) * o.freqMul;
+    const dur = 0.5 * o.decayMul;
+    const g = env(ctx,dest,t, 0.5*o.gain, dur);
+    [[1,1],[2.76,0.5],[5.4,0.25]].forEach(([m,a])=>{
+      const s=ctx.createOscillator(); s.type='sine'; s.frequency.value=base*m;
+      const sg=ctx.createGain(); sg.gain.value=a; s.connect(sg); sg.connect(g); s.start(t); s.stop(t+dur+0.05);
+    });
+  },
+  triangle(ctx,dest,t,o){
+    const base = (o.accent?6000:4400) * o.freqMul;
+    const dur = 0.45 * o.decayMul;
+    const g = env(ctx,dest,t, 0.35*o.gain, dur);
+    [[1,1],[1.5,0.4]].forEach(([m,a])=>{
+      const s=ctx.createOscillator(); s.type='sine'; s.frequency.value=base*m;
+      const sg=ctx.createGain(); sg.gain.value=a; s.connect(sg); sg.connect(g); s.start(t); s.stop(t+dur+0.05);
+    });
+  },
+  marimba(ctx,dest,t,o){
+    const base = (o.accent?880:587) * o.freqMul;
+    const dur = 0.22 * o.decayMul;
+    const g = env(ctx,dest,t, 0.9*o.gain, dur);
+    [[1,1],[3.9,0.25]].forEach(([m,a])=>{
+      const s=ctx.createOscillator(); s.type='sine'; s.frequency.value=base*m;
+      const sg=ctx.createGain(); sg.gain.value=a; s.connect(sg); sg.connect(g); s.start(t); s.stop(t+dur+0.03);
+    });
+    const nb=ctx.createBufferSource(); nb.buffer=noiseBuffer(ctx,0.01);
+    const ng=ctx.createGain(); ng.gain.setValueAtTime(0.3*o.gain,t); ng.gain.exponentialRampToValueAtTime(0.001,t+0.008);
+    nb.connect(ng); ng.connect(g); nb.start(t); nb.stop(t+0.01);
+  },
+  snare(ctx,dest,t,o){
+    const dur = (o.accent?0.16:0.11) * o.decayMul;
+    const g = env(ctx,dest,t, 0.8*o.gain, dur);
+    const nb=ctx.createBufferSource(); nb.buffer=noiseBuffer(ctx,0.2);
+    const hp=ctx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=1200;
+    nb.connect(hp); hp.connect(g); nb.start(t); nb.stop(t+dur+0.02);
+    const s=ctx.createOscillator(); s.type='triangle'; s.frequency.value=190*o.freqMul;
+    const sg=ctx.createGain(); sg.gain.value=0.5; s.connect(sg); sg.connect(g); s.start(t); s.stop(t+0.05);
+  },
+  tabla(ctx,dest,t,o){
+    // "tin" — sharp pitched membrane with quick downward glide
+    const dur = 0.18 * o.decayMul;
+    const g = env(ctx,dest,t, 0.9*o.gain, dur);
+    const s=ctx.createOscillator(); s.type='sine';
+    const f0=(o.accent?400:340)*o.freqMul;
+    s.frequency.setValueAtTime(f0,t); s.frequency.exponentialRampToValueAtTime(f0*0.5,t+0.05);
+    const bp=ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=f0*2; bp.Q.value=4;
+    s.connect(bp); bp.connect(g); s.start(t); s.stop(t+dur+0.03);
+    const nb=ctx.createBufferSource(); nb.buffer=noiseBuffer(ctx,0.01);
+    const ng=ctx.createGain(); ng.gain.setValueAtTime(0.4*o.gain,t); ng.gain.exponentialRampToValueAtTime(0.001,t+0.01);
+    nb.connect(ng); ng.connect(g); nb.start(t); nb.stop(t+0.01);
+  },
+  conga(ctx,dest,t,o){
+    const dur = 0.2 * o.decayMul;
+    const g = env(ctx,dest,t, 0.95*o.gain, dur);
+    const s=ctx.createOscillator(); s.type='sine';
+    const f0=(o.accent?300:230)*o.freqMul;
+    s.frequency.setValueAtTime(f0,t); s.frequency.exponentialRampToValueAtTime(f0*0.8,t+dur);
+    s.connect(g); s.start(t); s.stop(t+dur+0.03);
+  },
+  shaker(ctx,dest,t,o){
+    const dur = (o.accent?0.07:0.045) * o.decayMul;
+    const g = ctx.createGain(); g.connect(dest);
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.linearRampToValueAtTime(0.5*o.gain,t+0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    const bp=ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=6500; bp.Q.value=2; bp.connect(g);
+    const nb=ctx.createBufferSource(); nb.buffer=noiseBuffer(ctx,0.1); nb.connect(bp); nb.start(t); nb.stop(t+dur+0.02);
+  },
+  pluck(ctx,dest,t,o){
+    const base=(o.accent?660:440)*o.freqMul;
+    const dur=0.14*o.decayMul;
+    const g=env(ctx,dest,t, 0.8*o.gain, dur);
+    const s=ctx.createOscillator(); s.type='sawtooth'; s.frequency.value=base;
+    const lp=ctx.createBiquadFilter(); lp.type='lowpass';
+    lp.frequency.setValueAtTime(base*8,t); lp.frequency.exponentialRampToValueAtTime(base*1.5,t+dur);
+    s.connect(lp); lp.connect(g); s.start(t); s.stop(t+dur+0.02);
+  },
+  sidestick(ctx,dest,t,o){
+    const dur=0.02*o.decayMul;
+    const g=env(ctx,dest,t, 0.95*o.gain, dur);
+    const nb=ctx.createBufferSource(); nb.buffer=noiseBuffer(ctx,0.02);
+    const bp=ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=2600*o.freqMul; bp.Q.value=3;
+    nb.connect(bp); bp.connect(g); nb.start(t); nb.stop(t+0.02);
+    const s=ctx.createOscillator(); s.type='sine'; s.frequency.value=250*o.freqMul; s.connect(g); s.start(t); s.stop(t+0.02);
+  },
+  blip(ctx,dest,t,o){
+    const f=(o.accent?1600:900)*o.freqMul;
+    const dur=0.025*o.decayMul;
+    const g=env(ctx,dest,t, 0.9*o.gain, dur);
+    const s=ctx.createOscillator(); s.type='sine'; s.frequency.value=f; s.connect(g); s.start(t); s.stop(t+dur+0.01);
+    const s2=ctx.createOscillator(); s2.type='square'; s2.frequency.value=f*2;
+    const sg=ctx.createGain(); sg.gain.value=0.15; s2.connect(sg); sg.connect(g); s2.start(t); s2.stop(t+dur+0.01);
+  },
 };
 const VOICE_LABELS = {
-  wood:'Wood block', click:'Click', clave:'Clave', beep:'Beep', digital:'Digital / Seiko',
-  cowbell:'Cowbell', hat:'Hi-hat tick', rim:'Rimshot', kick:'Membrane / low',
+  wood:'Wood block', click:'Click', clave:'Clave', tick:'Clock tick', sidestick:'Side stick',
+  rim:'Rimshot', beep:'Beep', digital:'Digital / Seiko', blip:'Blip', bell:'Bell',
+  triangle:'Triangle', marimba:'Marimba', pluck:'Pluck', cowbell:'Cowbell', shaker:'Shaker',
+  hat:'Hi-hat', snare:'Snare', tabla:'Tabla', conga:'Conga', kick:'Membrane / low',
 };
+const VOICE_GROUPS = [
+  ['Sticks & clicks', ['wood','click','clave','tick','sidestick','rim']],
+  ['Electronic',      ['beep','digital','blip']],
+  ['Melodic',         ['bell','triangle','marimba','pluck']],
+  ['Percussion',      ['cowbell','shaker','hat','snare','tabla','conga','kick']],
+];
 function fillSoundSelects(){
-  const opts = Object.keys(VOICES).map(k=>`<option value="${k}">${VOICE_LABELS[k]}</option>`).join('');
-  ['#soundMain','#soundSub'].forEach(sel=>{ $(sel).innerHTML = opts; });
+  const html = VOICE_GROUPS.map(([g,keys])=>
+    `<optgroup label="${g}">` +
+    keys.filter(k=>VOICES[k]).map(k=>`<option value="${k}">${VOICE_LABELS[k]||k}</option>`).join('') +
+    `</optgroup>`).join('');
+  ['#soundMain','#soundSub'].forEach(sel=>{ $(sel).innerHTML = html; });
   $('#soundMain').value = 'wood';
   $('#soundSub').value = 'click';
 }
@@ -723,10 +870,26 @@ const M = {
   // trainer
   trainer:false, trBars:4, trAmt:4, trMax:180,
   muteMode:false, muPlay:3, muMute:1,
+  // meter sequence (loop of changing time signatures)
+  meterSeqOn:false, meterSeq:[],   // [{num,den,unit,bars}]
   // runtime
   _next:0, _beat:0, _bar:0, _sub:0, _timer:null, _trainerBars:0,
-  _uiBeat:-1, _countdown:0, _muteCycle:0,
+  _uiBeat:-1, _countdown:0, _muteCycle:0, _seqIdx:0, _seqBar:0,
 };
+
+const METER_PRESETS = [
+  {label:'4/4', g:'common', num:4, den:4, unit:'4'},
+  {label:'2/2', g:'cut',    num:2, den:2, unit:'2'},
+  {label:'2/4', g:'march',  num:2, den:4, unit:'4'},
+  {label:'3/4', g:'waltz',  num:3, den:4, unit:'4'},
+  {label:'5/4', g:'',       num:5, den:4, unit:'4'},
+  {label:'6/8', g:'in 2',   num:6, den:8, unit:'3d'},
+  {label:'6/8', g:'in 6',   num:6, den:8, unit:'8'},
+  {label:'9/8', g:'in 3',   num:9, den:8, unit:'3d'},
+  {label:'12/8',g:'in 4',   num:12,den:8, unit:'3d'},
+  {label:'7/8', g:'',       num:7, den:8, unit:'8'},
+  {label:'3/8', g:'',       num:3, den:8, unit:'8'},
+];
 
 const LOOKAHEAD_MS = 25;
 const SCHEDULE_AHEAD = 0.12;
@@ -783,8 +946,21 @@ function metroTick(){
   const dest = master;
   try{
     while(M._next < ctx.currentTime + SCHEDULE_AHEAD){
-      const bpb = beatsPerMeasure();
       const inCountIn = M._countdown > 0;
+
+      // meter sequence: swap time signature at the top of each measure
+      if(M._beat === 0 && !inCountIn && M.meterSeqOn && M.meterSeq.length){
+        const e = M.meterSeq[M._seqIdx % M.meterSeq.length];
+        if(e){
+          M.tsNum = e.num; M.tsDen = e.den; M.beatUnit = e.unit;
+          fixAccentsLength();
+          const wq = Math.max(0, (M._next - ctx.currentTime) * 1000);
+          const idx = M._seqIdx % M.meterSeq.length;
+          setTimeout(()=>{ if(M.playing){ syncMeterControls(); renderBeatLights(); highlightSeqRow(idx); } }, wq);
+        }
+      }
+
+      const bpb = beatsPerMeasure();
 
       // decide mute (random bar mute) — only affects audible, not counting
       let barMuted = false;
@@ -835,6 +1011,11 @@ function metroTick(){
           M._bar++;
           M._trainerBars++;
           M._muteCycle++;
+          if(M.meterSeqOn && M.meterSeq.length){
+            const e = M.meterSeq[M._seqIdx % M.meterSeq.length];
+            const barsInEntry = Math.max(1, (e && e.bars) || 1);
+            if(++M._seqBar >= barsInEntry){ M._seqBar = 0; M._seqIdx++; }
+          }
         }
       }
     }
@@ -886,6 +1067,12 @@ function startMetro(){
   if(M.playing) return;
   M.playing = true;
   M._beat = 0; M._bar = 0; M._trainerBars = 0; M._muteCycle = 0;
+  M._seqIdx = 0; M._seqBar = 0;
+  if(M.meterSeqOn && M.meterSeq.length){
+    const e = M.meterSeq[0];
+    M.tsNum = e.num; M.tsDen = e.den; M.beatUnit = e.unit;
+    fixAccentsLength(); syncMeterControls(); renderBeatLights();
+  }
   M._countdown = M.countInBars;
   M._next = actx.currentTime + 0.08;
   setPlayUI(true);
@@ -897,6 +1084,12 @@ function stopMetro(){
   clearTimeout(M._timer); M._timer = null;
   setPlayUI(false);
   $$('#beatLights .beat').forEach(el=>el.classList.remove('on','acc'));
+  $$('#seqList .seq-row').forEach(r=>r.classList.remove('seq-cur'));
+  if(M.meterSeqOn && M.meterSeq.length){
+    const e = M.meterSeq[0];
+    M.tsNum=e.num; M.tsDen=e.den; M.beatUnit=e.unit;
+    fixAccentsLength(); syncMeterControls(); renderBeatLights();
+  }
   if(!SHOW.playing) releaseWake();
 }
 function toggleMetro(){ M.playing ? stopMetro() : startMetro(); }
@@ -977,6 +1170,97 @@ function fixAccentsLength(){
   M.accents = a;
 }
 
+function syncMeterControls(){
+  const sel = $('#tsNum');
+  if(sel){ if(![...sel.options].some(o=>+o.value===M.tsNum)){ buildTsNum(); } sel.value = M.tsNum; }
+  if($('#tsDen')) $('#tsDen').value = M.tsDen;
+  if($('#beatUnit')) $('#beatUnit').value = M.beatUnit;
+}
+
+function renderMeterPresets(){
+  const wrap = $('#meterPresets');
+  if(!wrap) return;
+  wrap.innerHTML = '';
+  METER_PRESETS.forEach(p=>{
+    const on = !M.meterSeqOn && M.tsNum===p.num && M.tsDen===p.den && String(M.beatUnit)===String(p.unit);
+    const b = document.createElement('button');
+    b.className = 'chip' + (on ? ' on' : '');
+    b.type = 'button';
+    b.innerHTML = p.g ? `${p.label}<span class="g">${p.g}</span>` : p.label;
+    b.addEventListener('click', ()=>applyMeterPreset(p));
+    wrap.appendChild(b);
+  });
+}
+function applyMeterPreset(p){
+  if(M.meterSeqOn){ setMeterSeqOn(false); }
+  M.tsNum = p.num; M.tsDen = p.den; M.beatUnit = p.unit;
+  fixAccentsLength();
+  syncMeterControls();
+  renderBeatLights();
+  renderMeterPresets();
+  saveMetro();
+}
+
+function renderSeqList(){
+  const wrap = $('#seqList');
+  if(!wrap) return;
+  wrap.innerHTML = '';
+  if(!M.meterSeq.length){
+    wrap.innerHTML = '<div class="hint" style="margin:0">No meters yet — add a few, e.g. 7/8, 7/8, 4/4.</div>';
+    return;
+  }
+  M.meterSeq.forEach((e, i)=>{
+    const row = document.createElement('div');
+    row.className = 'seq-row';
+    row.dataset.i = i;
+    row.innerHTML = `
+      <span class="mno" style="min-width:20px;color:var(--dimmer);font-weight:700">${i+1}</span>
+      <select data-f="preset" class="grow"></select>
+      <input type="number" data-f="bars" min="1" max="32" value="${e.bars||1}" style="width:64px" title="measures" />
+      <span class="muted" style="font-size:11px">bars</span>
+      <button class="x" data-f="del" title="remove">✕</button>`;
+    const psel = row.querySelector('[data-f="preset"]');
+    psel.innerHTML = METER_PRESETS.map((p,pi)=>{
+      const match = p.num===e.num && p.den===e.den && String(p.unit)===String(e.unit);
+      return `<option value="${pi}" ${match?'selected':''}>${p.label}${p.g?' · '+p.g:''}</option>`;
+    }).join('');
+    psel.addEventListener('change', ()=>{
+      const p = METER_PRESETS[+psel.value];
+      e.num=p.num; e.den=p.den; e.unit=p.unit; saveMetro();
+    });
+    row.querySelector('[data-f="bars"]').addEventListener('change', ev=>{
+      e.bars = clamp(+ev.target.value||1, 1, 32); ev.target.value = e.bars; saveMetro();
+    });
+    row.querySelector('[data-f="del"]').addEventListener('click', ()=>{
+      M.meterSeq.splice(i,1); renderSeqList(); saveMetro();
+    });
+    wrap.appendChild(row);
+  });
+}
+function highlightSeqRow(idx){
+  $$('#seqList .seq-row').forEach(r=>r.classList.toggle('seq-cur', +r.dataset.i === idx));
+}
+function setMeterSeqOn(on){
+  M.meterSeqOn = on;
+  setSw('#swSeq', on);
+  $('#meterPresets').style.opacity = on ? '.4' : '1';
+  $('#meterPresets').style.pointerEvents = on ? 'none' : 'auto';
+  if(on && !M.meterSeq.length){
+    M.meterSeq = [
+      {num:4,den:4,unit:'4',bars:1},
+      {num:3,den:4,unit:'4',bars:1},
+    ];
+    renderSeqList();
+  }
+  if(on && M.meterSeq.length){
+    const e = M.meterSeq[0];
+    M.tsNum=e.num; M.tsDen=e.den; M.beatUnit=e.unit;
+    fixAccentsLength(); syncMeterControls(); renderBeatLights();
+  }
+  renderMeterPresets();
+  saveMetro();
+}
+
 function saveMetro(){
   store.set('metro', {
     bpm:M.bpm, tsNum:M.tsNum, tsDen:M.tsDen, beatUnit:M.beatUnit, subdiv:M.subdiv, swingPct:M.swingPct,
@@ -984,6 +1268,7 @@ function saveMetro(){
     countInBars:M.countInBars, flash:M.flash, vibrate:M.vibrate, wake:M.wake, speak:M.speak,
     trainer:M.trainer, trBars:M.trBars, trAmt:M.trAmt, trMax:M.trMax,
     muteMode:M.muteMode, muPlay:M.muPlay, muMute:M.muMute,
+    meterSeqOn:M.meterSeqOn, meterSeq:M.meterSeq,
   });
 }
 function loadMetro(){
@@ -991,6 +1276,8 @@ function loadMetro(){
   if(!s) return;
   Object.assign(M, s);
   if(!Array.isArray(M.accents) || !M.accents.length) M.accents = [3,2,2,2];
+  if(!Array.isArray(M.meterSeq)) M.meterSeq = [];
+  M.meterSeq = M.meterSeq.filter(e => e && e.num && e.den && e.unit).map(e => ({num:+e.num, den:+e.den, unit:String(e.unit), bars:clamp(+e.bars||1,1,32)}));
 }
 
 function tapTempo(){
@@ -1041,9 +1328,23 @@ function wireMetro(){
 
   const onTs = ()=>{
     M.tsNum = +$('#tsNum').value; M.tsDen = +$('#tsDen').value; M.beatUnit = $('#beatUnit').value;
-    fixAccentsLength(); renderBeatLights(); saveMetro();
+    fixAccentsLength(); renderBeatLights(); renderMeterPresets(); saveMetro();
   };
   ['#tsNum','#tsDen','#beatUnit'].forEach(s => $(s).addEventListener('change', onTs));
+
+  // meter presets + meter sequence
+  renderMeterPresets();
+  renderSeqList();
+  setSw('#swSeq', M.meterSeqOn);
+  $('#meterPresets').style.opacity = M.meterSeqOn ? '.4' : '1';
+  $('#meterPresets').style.pointerEvents = M.meterSeqOn ? 'none' : 'auto';
+  if(M.meterSeqOn) $('#seqCard').open = true;
+  wireSw('#swSeq', v=>setMeterSeqOn(v));
+  $('#addSeqRow').addEventListener('click', ()=>{
+    const last = M.meterSeq[M.meterSeq.length-1];
+    M.meterSeq.push(last ? {...last} : {num:4,den:4,unit:'4',bars:1});
+    renderSeqList(); saveMetro();
+  });
 
   const swingLbl = $('#swingPct').closest('label');
   const syncSwingVis = ()=>{ swingLbl.style.visibility = (M.subdiv === 'swing') ? 'visible' : 'hidden'; };
@@ -1170,6 +1471,15 @@ function renderSegList(){
         <input class="name" type="text" placeholder="Rehearsal letter / label" value="${escapeHtml(s.name)}" />
       </div>
       <div class="seg-grid">
+        <label class="fld" style="grid-column:span 3">Meter preset
+          <select data-k="preset">
+            <option value="">— custom —</option>
+            ${METER_PRESETS.map((p,pi)=>{
+              const match = p.num===s.tsNum && p.den===s.tsDen && String(p.unit)===String(s.beatUnit);
+              return `<option value="${pi}" ${match?'selected':''}>${p.label}${p.g?' · '+p.g:''}</option>`;
+            }).join('')}
+          </select>
+        </label>
         <label class="fld">Measures<input type="number" min="1" max="512" value="${s.measures}" data-k="measures"></label>
         <label class="fld">Beats<input type="number" min="1" max="16" value="${s.tsNum}" data-k="tsNum"></label>
         <label class="fld">/ value
@@ -1208,7 +1518,10 @@ function renderSegList(){
       }
       ctrl.addEventListener('change', ()=>{
         let v = ctrl.value;
-        if(k === 'bpmEnd'){ s.bpmEnd = v === '' ? null : clamp(+v,10,400); }
+        if(k === 'preset'){
+          if(v !== ''){ const p = METER_PRESETS[+v]; s.tsNum = p.num; s.tsDen = p.den; s.beatUnit = p.unit; }
+        }
+        else if(k === 'bpmEnd'){ s.bpmEnd = v === '' ? null : clamp(+v,10,400); }
         else if(['measures','tsNum','tsDen','bpm'].includes(k)){ s[k] = clamp(+v, k==='bpm'?10:1, k==='bpm'?400: k==='measures'?512:16); }
         else { s[k] = v; }
         renderSegList(); renderShowMeta(); saveShowState();
@@ -1574,7 +1887,7 @@ function wireShow(){
 const T = {
   running:false, stream:null, analyser:null, src:null, buf:null,
   a4:440, transpose:0, disp:'needle', hist:true,
-  raf:0, deviceId:'', level:0,
+  raf:0, deviceId:'', level:0, demoRAF:0,
   histData:[],
 };
 
@@ -1582,7 +1895,22 @@ function noteFromPitch(freq, a4){ return Math.round(12*Math.log2(freq/a4)) + 69;
 function freqFromMidi(m, a4){ return a4 * Math.pow(2, (m-69)/12); }
 function centsOff(freq, midi, a4){ return 1200 * Math.log2(freq / freqFromMidi(midi, a4)); }
 
-function autoCorrelate(buf, sampleRate){
+function autoCorrelate(rawBuf, rawRate){
+  // Decimate with a boxcar low-pass so the O(n^2) correlation stays cheap on phones.
+  const TARGET = 12000;
+  const factor = Math.max(1, Math.floor(rawRate / TARGET));
+  let buf, sampleRate;
+  if(factor > 1){
+    const m = Math.floor(rawBuf.length / factor);
+    buf = new Float32Array(m);
+    for(let i=0;i<m;i++){
+      let s = 0, base = i*factor;
+      for(let k=0;k<factor;k++) s += rawBuf[base+k];
+      buf[i] = s / factor;
+    }
+    sampleRate = rawRate / factor;
+  } else { buf = rawBuf; sampleRate = rawRate; }
+
   const SIZE = buf.length;
   let rms = 0;
   for(let i=0;i<SIZE;i++){ const v = buf[i]; rms += v*v; }
@@ -1631,6 +1959,8 @@ async function listInputs(){
 async function startTuner(){
   ensureAudio();
   if(T.running) return;
+  if(T.demoRAF){ cancelAnimationFrame(T.demoRAF); T.demoRAF = 0; }
+  clearTimeout(T._demoEnd);
   try{
     const constraints = { audio: T.deviceId
       ? { deviceId:{exact:T.deviceId}, echoCancellation:false, noiseSuppression:false, autoGainControl:false }
@@ -1662,6 +1992,43 @@ function stopTuner(){
   $('#tunerLevel').style.width = '0%';
 }
 function toggleTuner(){ T.running ? stopTuner() : startTuner(); }
+
+function endTunerDemo(){
+  if(T.demoRAF){ cancelAnimationFrame(T.demoRAF); T.demoRAF = 0; }
+  clearTimeout(T._demoEnd);
+  updateSmiley(0);
+  $('#centNeedle').style.transform = 'translateX(-50%) rotate(0deg)';
+  $('#centNeedle').classList.add('in');
+  $('#centReadout').textContent = '0 cents · in tune';
+  $('#tunerFreq').textContent = 'demo done — press Start tuner for the real thing';
+}
+function runTunerDemo(){
+  if(T.demoRAF){ cancelAnimationFrame(T.demoRAF); T.demoRAF = 0; }
+  clearTimeout(T._demoEnd);
+  if(T.running) stopTuner();
+  const start = performance.now();
+  const dur = 4200;
+  const nb = $('#tunerNote');
+  if(nb.firstChild && nb.firstChild.nodeType === 3) nb.firstChild.textContent = 'A';
+  $('#tunerOct').textContent = '4';
+  T._demoEnd = setTimeout(endTunerDemo, dur + 500);
+  const step = (now)=>{
+    const p = (now - start) / dur;
+    if(p >= 1){ endTunerDemo(); return; }
+    let cents;
+    if(p < 0.42) cents = 35 - (p/0.42)*70;                 // sharp → flat
+    else if(p < 0.8) cents = -35 + ((p-0.42)/0.38)*35;      // flat → centre
+    else cents = Math.sin((p-0.8)/0.2*Math.PI*3) * 4 * (1-(p-0.8)/0.2); // small settle wobble
+    const cs = clamp(cents, -50, 50);
+    $('#centNeedle').style.transform = `translateX(-50%) rotate(${cs*0.9}deg)`;
+    $('#centNeedle').classList.toggle('in', Math.abs(cents) <= 5);
+    $('#centReadout').textContent = (cents>0?'+':'') + cents.toFixed(0) + ' cents';
+    $('#tunerFreq').textContent = 'demo';
+    updateSmiley(cents);
+    T.demoRAF = requestAnimationFrame(step);
+  };
+  T.demoRAF = requestAnimationFrame(step);
+}
 
 let _tLast = 0, _smoothFreq = 0;
 function tunerLoop(ts){
@@ -1774,6 +2141,7 @@ function wireTuner(){
   $('#strobe').hidden = T.disp !== 'strobe';
 
   $('#tunerToggle').addEventListener('click', toggleTuner);
+  $('#tunerDemo').addEventListener('click', runTunerDemo);
   $('#a4').addEventListener('change', e=>{ T.a4 = clamp(+e.target.value,410,470); e.target.value = T.a4; store.set('tuner_a4', T.a4); });
   $('#transpose').addEventListener('change', e=>{ T.transpose = +e.target.value; store.set('tuner_tr', T.transpose); });
   $('#tunerDisp').addEventListener('change', e=>{ T.disp = e.target.value; store.set('tuner_disp', T.disp); $('#strobe').hidden = T.disp!=='strobe'; });
