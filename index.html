@@ -329,6 +329,9 @@
       <details class="adv">
         <summary>Audio output &amp; Bluetooth / field PA</summary>
         <div class="adv-body">
+          <div class="toggle"><span>Play even when the phone is on silent / ring&nbsp;off</span><div class="sw on" id="swLoud"></div></div>
+          <div class="hint">On by default — the click plays through the iOS mute switch, the same way a video with sound does. Turn off if you want the silent switch to mute it.</div>
+          <div class="divider"></div>
           <div id="outRouteRow"></div>
           <div class="hint">
             <b>iPhone:</b> pair the field PA / Bluetooth receiver in <b>iOS Settings → Bluetooth</b>, or plug the phone into the sound board with a cable — the click follows whatever output iOS is using. Nothing to set here.<br><br>
@@ -479,7 +482,7 @@
           <button class="btn sm" id="tunerDemo">Demo</button>
         </div>
         <div class="lvl" style="margin-top:10px"><i id="tunerLevel"></i></div>
-        <div class="hint">No instrument handy? Tap <b>Demo</b> to sweep the needle and face through sharp → in-tune → flat so you can check it works.</div>
+        <div class="hint" id="tunerSource">No instrument handy? Tap <b>Demo</b> to sweep the needle and face through sharp → in-tune → flat so you can check it works.</div>
       </div>
 
       <div class="card">
@@ -655,11 +658,72 @@ function ensureAudio(){
     master.connect(comp); comp.connect(actx.destination);
   }
   if(actx.state === 'suspended') actx.resume();
+  applyLoudMode();
   return actx;
 }
 // resume on any interaction (iOS)
 ['pointerdown','touchend','keydown'].forEach(ev =>
   window.addEventListener(ev, ()=>{ if(actx && actx.state==='suspended') actx.resume(); }, {passive:true}));
+
+/* ---------- play through the iOS ring/silent switch ----------
+   Two mechanisms, applied together:
+   1. navigator.audioSession.type = 'playback'  (iOS 16.4+)  — the official switch.
+   2. a looping element of digital silence         (older iOS) — keeps a media
+      audio session alive so Web Audio is routed to the media channel, which
+      the mute switch does not silence (same reason a muted-phone video has sound).
+   Toggle with LOUD.enabled (Settings → Audio output). */
+const LOUD = { enabled: store.get('loud', true), _el: null, _wanted: false };
+
+function silentWavUrl(){
+  const sr = 8000, n = Math.floor(sr * 0.5);       // 0.5 s of silence, mono 16-bit
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf); let p = 0;
+  const u16 = x => { v.setUint16(p, x, true); p += 2; };
+  const u32 = x => { v.setUint32(p, x, true); p += 4; };
+  u32(0x46464952); u32(36 + n * 2); u32(0x45564157);
+  u32(0x20746d66); u32(16); u16(1); u16(1);
+  u32(sr); u32(sr * 2); u16(2); u16(16);
+  u32(0x61746164); u32(n * 2);                      // data bytes already zero = silence
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+}
+function setAudioSession(type){
+  try{
+    if(navigator.audioSession && navigator.audioSession.type !== type){
+      navigator.audioSession.type = type;
+    }
+  }catch(_){}
+}
+function loudCapturing(){
+  try{ return (typeof T !== 'undefined' && T.running) || (typeof R !== 'undefined' && R.recording); }
+  catch(_){ return false; }
+}
+function applyLoudMode(){
+  if(!LOUD.enabled){ setAudioSession('auto'); if(LOUD._el){ try{ LOUD._el.pause(); }catch(_){} } return; }
+  setAudioSession(loudCapturing() ? 'play-and-record' : 'playback');
+  try{
+    if(!LOUD._el){
+      LOUD._el = document.createElement('audio');
+      LOUD._el.loop = true;
+      LOUD._el.preload = 'auto';
+      LOUD._el.setAttribute('playsinline', '');
+      LOUD._el.volume = 1;                 // it is digital silence; volume is irrelevant
+      LOUD._el.src = silentWavUrl();
+    }
+    if(LOUD._wanted){
+      const pr = LOUD._el.play();
+      if(pr && pr.catch) pr.catch(()=>{});
+    }
+  }catch(_){}
+}
+function loudKeepAlive(on){
+  LOUD._wanted = on || M.playing || SHOW.playing ||
+    (typeof D !== 'undefined' && D.playing) ||
+    (typeof T !== 'undefined' && T.running) ||
+    (typeof R !== 'undefined' && R.recording);
+  if(!LOUD.enabled) return;
+  if(LOUD._wanted) applyLoudMode();
+  else if(LOUD._el){ try{ LOUD._el.pause(); }catch(_){} setAudioSession('playback'); }
+}
 
 /* ---------- click synthesis ----------
    Each voice: fn(ctx, dest, time, {gain, freqMul, accent, decayMul})
@@ -1109,12 +1173,14 @@ function startMetro(){
   M._next = actx.currentTime + 0.08;
   setPlayUI(true);
   acquireWake();
+  loudKeepAlive(true);
   metroTick();
 }
 function stopMetro(){
   M.playing = false;
   clearTimeout(M._timer); M._timer = null;
   setPlayUI(false);
+  loudKeepAlive(false);
   $$('#beatLights .beat').forEach(el=>el.classList.remove('on','acc'));
   $$('#seqList .seq-row').forEach(r=>r.classList.remove('seq-cur'));
   if(M.meterSeqOn && M.meterSeq.length){
@@ -1401,6 +1467,8 @@ function wireMetro(){
   wireSw('#swVibrate', v=>{ M.vibrate = v; saveMetro(); });
   wireSw('#swWake', v=>{ M.wake = v; if(!v) releaseWake(); else if(M.playing||SHOW.playing) acquireWake(); saveMetro(); });
   wireSw('#swSpeak', v=>{ M.speak = v; if(v && 'speechSynthesis' in window){ speechSynthesis.getVoices(); } saveMetro(); });
+  setSw('#swLoud', LOUD.enabled);
+  wireSw('#swLoud', v=>{ LOUD.enabled = v; store.set('loud', v); applyLoudMode(); if(v) loudKeepAlive(false); });
 
   wireSw('#swTrainer', v=>{ M.trainer = v; saveMetro(); });
   ['#trBars|trBars','#trAmt|trAmt','#trMax|trMax','#muPlay|muPlay','#muMute|muMute'].forEach(pair=>{
@@ -1684,6 +1752,7 @@ function startShow(){
 
   setShowPlayUI(true);
   acquireWake();
+  loudKeepAlive(true);
   renderSegList();
   showTick();
 }
@@ -1691,6 +1760,7 @@ function stopShow(){
   SHOW.playing = false;
   clearTimeout(SHOW._timer); SHOW._timer = null;
   setShowPlayUI(false);
+  loudKeepAlive(false);
   $('#showStatus').textContent = 'Stopped.';
   renderSegList();
   renderShowMeta();
@@ -2066,53 +2136,74 @@ function noteFromPitch(freq, a4){ return Math.round(12*Math.log2(freq/a4)) + 69;
 function freqFromMidi(m, a4){ return a4 * Math.pow(2, (m-69)/12); }
 function centsOff(freq, midi, a4){ return 1200 * Math.log2(freq / freqFromMidi(midi, a4)); }
 
-function autoCorrelate(rawBuf, rawRate){
-  // Decimate with a boxcar low-pass so the O(n^2) correlation stays cheap on phones.
-  const TARGET = 12000;
-  const factor = Math.max(1, Math.floor(rawRate / TARGET));
-  let buf, sampleRate;
-  if(factor > 1){
-    const m = Math.floor(rawBuf.length / factor);
-    buf = new Float32Array(m);
-    for(let i=0;i<m;i++){
-      let s = 0, base = i*factor;
-      for(let k=0;k<factor;k++) s += rawBuf[base+k];
-      buf[i] = s / factor;
-    }
-    sampleRate = rawRate / factor;
-  } else { buf = rawBuf; sampleRate = rawRate; }
-
-  const SIZE = buf.length;
+/* Pitch detection — McLeod Pitch Method (normalised square-difference function).
+   NSDF is bounded to [-1,1]; picking the FIRST key-maximum above 0.9·(highest peak)
+   locks onto the true fundamental instead of a sub-harmonic, which is what fixes the
+   octave errors a plain autocorrelation makes on harmonic-rich (brass/reed) tones. */
+const PITCH_MIN_HZ = 45;      // ~F#1 — below the lowest tuned brass note
+const PITCH_MAX_HZ = 2100;    // ~C7 — above the practical band top
+function autoCorrelate(buf, sampleRate){
+  const n = buf.length;
   let rms = 0;
-  for(let i=0;i<SIZE;i++){ const v = buf[i]; rms += v*v; }
-  rms = Math.sqrt(rms/SIZE);
-  if(rms < 0.008) return {freq:-1, rms};
-  let r1 = 0, r2 = SIZE-1;
-  const thres = 0.2;
-  for(let i=0;i<SIZE/2;i++){ if(Math.abs(buf[i]) < thres){ r1 = i; break; } }
-  for(let i=1;i<SIZE/2;i++){ if(Math.abs(buf[SIZE-i]) < thres){ r2 = SIZE-i; break; } }
-  const b = buf.subarray(r1, r2);
-  const n = b.length;
-  if(n < 128) return {freq:-1, rms};
-  const c = new Float32Array(n);
-  for(let i=0;i<n;i++){
-    let sum = 0;
-    for(let j=0;j<n-i;j++) sum += b[j]*b[j+i];
-    c[i] = sum;
+  for(let i=0;i<n;i++){ const v = buf[i]; rms += v*v; }
+  rms = Math.sqrt(rms/n);
+  if(rms < 0.008) return { freq:-1, rms };
+
+  const minLag = Math.max(2, Math.floor(sampleRate / PITCH_MAX_HZ));
+  const maxLag = Math.min(n - 2, Math.floor(sampleRate / PITCH_MIN_HZ));
+  if(maxLag <= minLag + 8) return { freq:-1, rms };
+
+  // NSDF (McLeod), computed from lag 1 so the tau≈period/2 trough is captured
+  const nsdf = new Float32Array(maxLag + 2);
+  for(let tau = 1; tau <= maxLag; tau++){
+    let ac = 0, m = 0;
+    for(let i = 0, e = n - tau; i < e; i++){
+      const a = buf[i], b = buf[i + tau];
+      ac += a * b;
+      m  += a * a + b * b;
+    }
+    nsdf[tau] = m > 0 ? (2 * ac) / m : 0;
   }
-  let d = 0;
-  while(d < n-1 && c[d] > c[d+1]) d++;
-  let maxval = -1, maxpos = -1;
-  for(let i=d;i<n;i++){ if(c[i] > maxval){ maxval = c[i]; maxpos = i; } }
-  if(maxpos <= 0) return {freq:-1, rms};
-  let T0 = maxpos;
-  const x1 = c[T0-1]||0, x2 = c[T0], x3 = c[T0+1]||0;
-  const a = (x1 + x3 - 2*x2) / 2;
-  const bb = (x3 - x1) / 2;
-  if(a) T0 = T0 - bb/(2*a);
-  const freq = sampleRate / T0;
-  if(freq < 25 || freq > 4200) return {freq:-1, rms};
-  return {freq, rms};
+
+  // Key maxima: highest NSDF point in each positive lobe — but only AFTER the
+  // function has first dropped to/below zero. A signal whose period approaches the
+  // window length never dips, so it produces no maxima and we report "no pitch"
+  // instead of a spurious high note.
+  const maxima = [];
+  let seenTrough = false, inLobe = false, curI = -1, curV = -1;
+  for(let tau = 1; tau <= maxLag; tau++){
+    const v = nsdf[tau];
+    if(v <= 0){
+      if(inLobe){ maxima.push({ i:curI, v:curV }); inLobe = false; }
+      seenTrough = true;
+    }else if(seenTrough){
+      if(!inLobe){ inLobe = true; curI = tau; curV = v; }
+      else if(v > curV){ curV = v; curI = tau; }
+    }
+  }
+  if(inLobe && curI > 0) maxima.push({ i:curI, v:curV });
+
+  // keep only candidates within the accepted frequency band
+  const valid = maxima.filter(mx => mx.i >= minLag && mx.i <= maxLag);
+  if(!valid.length) return { freq:-1, rms };
+
+  let peak = 0;
+  for(const mx of valid) if(mx.v > peak) peak = mx.v;
+  if(peak < 0.5) return { freq:-1, rms };               // no confident periodicity
+
+  const thresh = 0.9 * peak;
+  let chosen = valid[0];
+  for(const mx of valid){ if(mx.v >= thresh){ chosen = mx; break; } }
+
+  // parabolic interpolation around the chosen lag
+  let tau = chosen.i;
+  const x1 = nsdf[tau - 1] || 0, x2 = nsdf[tau], x3 = nsdf[tau + 1] || 0;
+  const denom = (x1 + x3 - 2 * x2);
+  if(denom) tau = tau - 0.5 * (x3 - x1) / denom;
+
+  const freq = sampleRate / tau;
+  if(freq < PITCH_MIN_HZ || freq > PITCH_MAX_HZ) return { freq:-1, rms };
+  return { freq, rms };
 }
 
 async function listInputs(){
@@ -2132,23 +2223,36 @@ async function startTuner(){
   if(T.running) return;
   if(T.demoRAF){ cancelAnimationFrame(T.demoRAF); T.demoRAF = 0; }
   clearTimeout(T._demoEnd);
+  const base = { echoCancellation:false, noiseSuppression:false, autoGainControl:false, channelCount:1 };
   try{
-    const constraints = { audio: T.deviceId
-      ? { deviceId:{exact:T.deviceId}, echoCancellation:false, noiseSuppression:false, autoGainControl:false }
-      : { echoCancellation:false, noiseSuppression:false, autoGainControl:false } };
-    T.stream = await navigator.mediaDevices.getUserMedia(constraints);
+    const audio = T.deviceId ? Object.assign({ deviceId:{ exact:T.deviceId } }, base) : base;
+    T.stream = await navigator.mediaDevices.getUserMedia({ audio });
   }catch(err){
-    toast('Mic access needed: ' + err.message, true);
-    return;
+    // exact device may have gone away — fall back to the default input
+    try{ T.stream = await navigator.mediaDevices.getUserMedia({ audio: base }); T.deviceId = ''; }
+    catch(err2){ toast('Mic access needed: ' + (err2.message||err2), true); return; }
   }
+  applyLoudMode();
+  loudKeepAlive(true);
   T.src = actx.createMediaStreamSource(T.stream);
   T.analyser = actx.createAnalyser();
-  T.analyser.fftSize = 2048;
+  T.analyser.fftSize = 4096;                 // ~93 ms window — several cycles even for low brass
+  T.analyser.smoothingTimeConstant = 0;
   T.buf = new Float32Array(T.analyser.fftSize);
   T.src.connect(T.analyser);
   T.running = true;
+  _smoothFreq = 0;
   $('#tunerToggle').textContent = 'Stop tuner';
   $('#tunerToggle').classList.remove('primary');
+  // show what the tuner is actually listening through
+  try{
+    const tr = T.stream.getAudioTracks()[0];
+    const st = tr.getSettings ? tr.getSettings() : {};
+    const label = tr.label || 'microphone';
+    $('#tunerSource').innerHTML = `Listening through <b>${escapeHtml(label)}</b>` +
+      (st.sampleRate ? ` · ${st.sampleRate} Hz` : '');
+    if(tr.getSettings && st.deviceId && $('#micDevice')){ $('#micDevice').value = st.deviceId; }
+  }catch(_){}
   listInputs();
   tunerLoop();
 }
@@ -2161,6 +2265,8 @@ function stopTuner(){
   $('#tunerToggle').classList.add('primary');
   $('#tunerFreq').textContent = 'stopped';
   $('#tunerLevel').style.width = '0%';
+  $('#tunerSource').innerHTML = 'No instrument handy? Tap <b>Demo</b> to sweep the needle and face through sharp → in-tune → flat so you can check it works.';
+  loudKeepAlive(false);
 }
 function toggleTuner(){ T.running ? stopTuner() : startTuner(); }
 
@@ -2205,7 +2311,7 @@ let _tLast = 0, _smoothFreq = 0;
 function tunerLoop(ts){
   if(!T.running) return;
   T.raf = requestAnimationFrame(tunerLoop);
-  if(ts && ts - _tLast < 45){ return; }   // ~22 Hz analysis
+  if(ts && ts - _tLast < 55){ return; }   // ~18 Hz analysis
   _tLast = ts || 0;
 
   T.analyser.getFloatTimeDomainData(T.buf);
@@ -2220,7 +2326,13 @@ function tunerLoop(ts){
     pushHist(null);
     return;
   }
-  _smoothFreq = _smoothFreq ? _smoothFreq + (freq - _smoothFreq)*0.25 : freq;
+  if(!_smoothFreq){
+    _smoothFreq = freq;
+  }else{
+    const ratio = freq / _smoothFreq;
+    if(ratio > 1.06 || ratio < 0.94) _smoothFreq = freq;        // jumped ≥ ~1 semitone: lock on now
+    else _smoothFreq += (freq - _smoothFreq) * 0.35;             // else glide for a steady reading
+  }
   const f = _smoothFreq;
 
   const concertMidi = noteFromPitch(f, T.a4);
@@ -2358,6 +2470,7 @@ function startDrone(){
   });
   D.gain.gain.linearRampToValueAtTime(D.vol, actx.currentTime + 0.05);
   D.playing = true;
+  loudKeepAlive(true);
   $('#droneToggle').textContent = 'Stop drone';
   $('#droneToggle').classList.remove('primary');
 }
@@ -2370,6 +2483,7 @@ function stopDroneNodes(){
 function stopDrone(){
   D.playing = false;
   stopDroneNodes();
+  loudKeepAlive(false);
   $('#droneToggle').textContent = 'Play drone';
   $('#droneToggle').classList.add('primary');
 }
@@ -2453,6 +2567,8 @@ async function startRec(){
   R.rec.onstop = finishRec;
   R.rec.start();
   R.recording = true;
+  applyLoudMode();
+  loudKeepAlive(true);
   R.startTs = performance.now();
   $('#recState').textContent = 'Recording…';
   $('#recBtn').classList.add('playing');
@@ -2476,6 +2592,7 @@ function stopRec(){
 function toggleRec(){ R.recording ? stopRec() : startRec(); }
 function finishRec(){
   if(R.stream){ R.stream.getTracks().forEach(t=>t.stop()); R.stream = null; }
+  loudKeepAlive(false);
   const type = (R.rec && R.rec.mimeType) || 'audio/mp4';
   const blob = new Blob(R.chunks, { type });
   if(R.blobUrl) URL.revokeObjectURL(R.blobUrl);
